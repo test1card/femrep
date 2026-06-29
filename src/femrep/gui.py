@@ -1,6 +1,6 @@
 """femrep.gui — PySide6 desktop app for the report generator.
 
-Single window: pick a result file (and optional log/deck/GCI), choose a mode,
+Single window: pick a result file (and optional log/deck/GCI),
 extract -> preview the contour + gate verdicts -> render PDF or DOCX.
 
 The pipeline (extract/govern/figures/render) runs in a QThread worker because
@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import sys
 import traceback
+import webbrowser
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, Signal
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog, QHBoxLayout
 from . import extract as extract_mod
 from . import govern, cli as cli_mod
 from . import report_pdf, report_docx
+from . import workflow
 
 MODES = govern.MODES
 HERE = Path(__file__).parent
@@ -55,10 +57,12 @@ class PipelineWorker(QThread):
                 if self.gci and self.gci.exists() else None
             manifest = govern.build_manifest(results, self.mode, deck_path=self.deck)
             gates = govern.evaluate_gates(results, self.mode, manifest, gci)
-            claim = govern.phrase_claim(self.mode, results, gci)
+            claim = govern.phrase_claim(self.mode, results, gci, gates)
+            readiness = govern.evaluate_readiness(results, manifest, gates, gci)
             (self.out_dir / "manifest.json").write_text(
                 json.dumps(manifest, indent=2), encoding="utf-8")
-            checks = {"mode": self.mode, "claim": claim, "gates": gates, "gci": gci}
+            checks = {"mode": self.mode, "claim": claim, "gates": gates,
+                      "gci": gci, "readiness": readiness}
             (self.out_dir / "checks.json").write_text(
                 json.dumps(checks, indent=2), encoding="utf-8")
 
@@ -67,9 +71,11 @@ class PipelineWorker(QThread):
                 self.progress.emit("rendering figures…")
                 from . import figures as fig_mod
                 figures = fig_mod.generate(results, gci, self.out_dir)
+            review_html = workflow.render_html_review(results, manifest, checks, figures, self.out_dir)
 
             self.finished_ok.emit({"results": results, "manifest": manifest,
-                                   "checks": checks, "figures": figures})
+                                   "checks": checks, "figures": figures,
+                                   "review_html": review_html})
         except Exception as e:
             self.failed.emit(f"{type(e).__name__}: {e}\n{traceback.format_exc()[-800:]}")
 
@@ -81,6 +87,7 @@ class FemrepWindow(QMainWindow):
         self.resize(1100, 760)
         self.worker: PipelineWorker | None = None
         self.last_payload: dict | None = None
+        self.report_mode = "SIGNOFF"
         self._build_ui()
 
     def _build_ui(self):
@@ -107,11 +114,8 @@ class FemrepWindow(QMainWindow):
         opts.addWidget(self.btn_gci); opts.addWidget(self.lbl_gci, 1)
         outer.addLayout(opts)
 
-        # mode + run
+        # run controls
         row = QHBoxLayout()
-        row.addWidget(QLabel("Execution mode:"))
-        self.cmb_mode = QComboBox(); self.cmb_mode.addItems(MODES); self.cmb_mode.setCurrentText("ENGINEERING")
-        row.addWidget(self.cmb_mode)
         self.chk_figs = QRadioButton("with figures"); self.chk_figs.setChecked(True)
         row.addWidget(self.chk_figs)
         self.btn_run = QPushButton("Extract + govern"); self.btn_run.clicked.connect(self._run)
@@ -146,7 +150,9 @@ class FemrepWindow(QMainWindow):
         rr.addWidget(QLabel("Render:")); rr.addWidget(self.rb_pdf); rr.addWidget(self.rb_docx)
         self.btn_render = QPushButton("Generate report"); self.btn_render.clicked.connect(self._render)
         self.btn_render.setEnabled(False)
-        rr.addStretch(); rr.addWidget(self.btn_render)
+        self.btn_review = QPushButton("Open review"); self.btn_review.clicked.connect(self._open_review)
+        self.btn_review.setEnabled(False)
+        rr.addStretch(); rr.addWidget(self.btn_review); rr.addWidget(self.btn_render)
         outer.addLayout(rr)
 
     # --- pickers ---
@@ -177,7 +183,7 @@ class FemrepWindow(QMainWindow):
         self.btn_run.setEnabled(False); self.progress.setVisible(True); self.progress.setRange(0, 0)
         self.lbl_status.setText("running…"); self.txt_status.clear()
         self.worker = PipelineWorker(
-            self.result_file, self.cmb_mode.currentText(),
+            self.result_file, self.report_mode,
             getattr(self, "log_file", None), None,
             getattr(self, "gci_file", None), self.out_dir, self.chk_figs.isChecked())
         self.worker.progress.connect(self._on_progress)
@@ -192,9 +198,10 @@ class FemrepWindow(QMainWindow):
         self.last_payload = payload
         self.progress.setVisible(False); self.btn_run.setEnabled(True)
         self.btn_render.setEnabled(True)
+        self.btn_review.setEnabled(bool(payload.get("review_html")))
         # preview contour
         figs = payload["figures"]
-        cp = figs.get("contour")
+        cp = figs.get("contour_views") or figs.get("contour")
         if cp and Path(cp).exists():
             pix = QPixmap(str(cp))
             if not pix.isNull():
@@ -209,7 +216,7 @@ class FemrepWindow(QMainWindow):
         q = results["primary_qoi"]
         lines = [f"<b>{manifest['solver']} {manifest.get('solver_version','')}</b>",
                  f"<b>QoI:</b> {q['name']} = {q['min']} .. {q['max']} {q['units']}",
-                 f"<b>Mode:</b> {checks['mode']}", "",
+                 f"<b>Report:</b> {checks.get('readiness', {}).get('summary', 'issued engineering report')}", "",
                  "<b>Gates (femis):</b>"]
         for g in checks["gates"]:
             color = {"pass": "#2b8a3e", "fail": "#c92a2a", "not_done": "#868e96"}[g["verdict"]]
@@ -227,6 +234,10 @@ class FemrepWindow(QMainWindow):
         self.progress.setVisible(False); self.btn_run.setEnabled(True)
         self.lbl_status.setText("FAILED")
         self.txt_status.setPlainText(msg)
+
+    def _open_review(self):
+        if self.last_payload and self.last_payload.get("review_html"):
+            webbrowser.open(Path(self.last_payload["review_html"]).resolve().as_uri())
 
     # --- render ---
     def _render(self):

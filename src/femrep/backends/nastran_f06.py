@@ -18,27 +18,42 @@ _SOL_RE = re.compile(r"^\s*SOL\s+(\d+)", re.MULTILINE)
 _TIME_RE = re.compile(r"^\s*TIME\s*=\s*([0-9.eE+\-]+)", re.MULTILINE)
 # a temperature-vector data row: <int>  S  <float> <float> ... (the leading int is POINT ID)
 _TEMP_ROW_RE = re.compile(r"^\s*(\d+)\s+S\s+([0-9.eE+\-]+(?:\s+[0-9.eE+\-]+){0,5})")
+_TEMP_HEADER_RE = re.compile(r"T E M P E R A T U R E\s+V E C T O R")
 _SOL_NAME = {"153": "steady_thermal", "159": "transient_thermal",
              "101": "static", "103": "modal", "106": "static"}
 
 
 def _parse_temperature_blocks(text: str) -> list[dict]:
-    """Return [{time, values:[per-grid T]}] for each TIME + TEMPERATURE VECTOR block."""
+    """Return [{time, values:[per-grid T]}] for each TIME + TEMPERATURE VECTOR block.
+
+    Single linear pass: collect header positions via finditer, then for each header
+    the associated TIME is the LAST 'TIME = ' match strictly BEFORE that header's
+    position (not text.find, which can point to a later repeated block body).
+    """
+    time_matches = list(_TIME_RE.finditer(text))
+    header_positions = [m.start() for m in _TEMP_HEADER_RE.finditer(text)]
+    if not header_positions:
+        return []
+
     blocks = []
-    # split on the TEMPERATURE VECTOR header; the TIME line precedes it
-    parts = re.split(r"T E M P E R A T U R E\s+V E C T O R", text)
-    for part in parts[1:]:  # parts[0] is preamble
-        # find the most recent TIME = before this block (search backward in the preceding text)
-        preceding = text[: text.find(part)]
-        tm = list(_TIME_RE.finditer(preceding))
-        t = float(tm[-1].group(1)) if tm else 0.0
+    for i, hdr_pos in enumerate(header_positions):
+        # the block body runs from this header to the next header (or EOF)
+        body_end = header_positions[i + 1] if i + 1 < len(header_positions) else len(text)
+        body = text[hdr_pos:body_end]
+        # the TIME for this block is the last TIME match before this header
+        t = 0.0
+        for tm in reversed(time_matches):
+            if tm.start() < hdr_pos:
+                t = float(tm.group(1))
+                break
         vals = []
-        for line in part.splitlines():
+        for line in body.splitlines():
             m = _TEMP_ROW_RE.match(line)
             if m:
                 vals.extend(float(x) for x in m.group(2).split())
         if vals:
             blocks.append({"time": t, "values": vals})
+
     # dedupe by time (a table can be echoed twice), keep first
     seen = set()
     out = []
@@ -49,7 +64,10 @@ def _parse_temperature_blocks(text: str) -> list[dict]:
     return out
 
 
-def extract(result_file: Path, solve_log: Path | None = None) -> dict:
+def extract(result_file: Path, solve_log: Path | None = None,
+            qoi: str | None = None) -> dict:
+    if qoi and qoi != "temperature":
+        raise ValueError(".f06 thermal parser currently supports only qoi=temperature")
     text = result_file.read_text(errors="replace")
     sol_m = _SOL_RE.search(text)
     sol = sol_m.group(1) if sol_m else "?"

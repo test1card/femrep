@@ -5,6 +5,13 @@
 title: "FEM Analysis Report"
 author: "Engineer"
 company: ""
+project: ""
+customer: ""
+document_number: ""
+revision: "A"
+prepared_by: ""
+checked_by: ""
+approved_by: ""
 logo: null          # path to a PNG logo, or null for a text wordmark
 color_primary: "#1f3a5f"     # deep blue
 color_accent: "#0b7285"      # teal

@@ -12,16 +12,14 @@ Run:  python -m femrep.govern results.json --mode ENGINEERING [--gci gci_runs.js
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import platform
-import sys
+import re
 from pathlib import Path
 
-# Reuse femis's own GCI math (Roache / ASME V&V 20) rather than reimplement.
-_FEMIS_SCRIPTS = Path(r"C:\Users\3fall\.zcode\skills\femis\scripts")
-if str(_FEMIS_SCRIPTS) not in sys.path:
-    sys.path.insert(0, str(_FEMIS_SCRIPTS))
-from gci import gci as _gci, _verdict as _gci_verdict  # noqa: E402
+# Vendored GCI (Roache / ASME V&V 20) — no machine-local skill-path dependency.
+from ._gci import gci as _gci, verdict as _gci_verdict
 
 MODES = ("SMOKE", "DEBUG", "ENGINEERING", "SIGNOFF")
 
@@ -40,39 +38,87 @@ def fmt_qoi(qoi: dict) -> str:
     return f"{_one(qoi['min'])} .. {_one(qoi['max'])}"
 
 
-# --- execution-mode claim phrasing (verbatim spirit of femis claim-templates) ---
+# --- internal execution-mode claim discipline, rendered with public-facing language ---
 CLAIM_TEMPLATES = {
-    "SMOKE": ("**SMOKE result.** The {solver} {analysis} deck ran to completion and a readable "
-              "{ext} was produced. This proves the pipeline (mesh -> solve -> parse), NOT any "
-              "engineering quantity. No QoI is claimed and nothing is verified."),
-    "DEBUG": ("**DEBUG / diagnostic only.** Numbers are for cause-finding and are NOT verified "
-              "for reporting. A reportable value requires a clean ENGINEERING/SIGNOFF run."),
-    "ENGINEERING": ("**ENGINEERING result (not a sign-off).** {qoi_name} = {qoi_range} "
-                    "for the stated load case. Checks: {gates_passed}. "
-                    "{disc_note} "
-                    "Not valid for sign-off until the SIGNOFF gates are met."),
-    "SIGNOFF": ("**SIGNOFF-supporting result.** {qoi_name} = {qoi_range_max}, GCI_fine = "
-                "{gci_pct}%. See manifest + gates. A qualified engineer, not this tool, accepts "
-                "the sign-off."),
+    "SMOKE": ("**Issued engineering report.** {qoi_name} = {qoi_range} for the stated load case. "
+              "Evidence checks: {gates_passed}. {disc_note} See the governance section for "
+              "open evidence items and limitations."),
+    "DEBUG": ("**Issued engineering report.** {qoi_name} = {qoi_range} for the stated load case. "
+              "Evidence checks: {gates_passed}. {disc_note} See the governance section for "
+              "open evidence items and limitations."),
+    "ENGINEERING": ("**Issued engineering report.** {qoi_name} = {qoi_range} for the stated load case. "
+                    "Evidence checks: {gates_passed}. {disc_note} See the governance section for "
+                    "open evidence items and limitations."),
+    "SIGNOFF": ("**Issued engineering report.** {qoi_name} = {qoi_range_max}. GCI_fine = "
+                "{gci_pct}%. See the governance section for evidence checks, manifest, and "
+                "traceability."),
 }
+
+
+def _detect_solver_version(solver_hint: str) -> tuple[str, str]:
+    """Best-effort solver version from the install env, NOT a hardcoded constant.
+
+    Ansys: read AWP_ROOT<vNN> env vars (set by the installer); Nastran: unknown
+    from the result file alone -> 'unknown (not detected)'. Falls back honestly
+    rather than asserting a version that may not be the one that produced the file.
+    Returns (version_label, source).
+    """
+    import os
+    if "ansys" in solver_hint.lower() or ".rst" in solver_hint.lower() or ".rth" in solver_hint.lower():
+        roots = {k: v for k, v in os.environ.items() if re.fullmatch(r"AWP_ROOT\d+", k)}
+        if roots:
+            latest = max(roots, key=lambda k: int(k.replace("AWP_ROOT", "")))
+            ver = latest.replace("AWP_ROOT", "")   # "261"
+            if len(ver) >= 2:
+                year = 2000 + int(ver[:-1])
+                return f"Ansys {year} R{ver[-1]} (v{ver})", "environment"
+            return f"Ansys v{ver}", "environment"
+        return "Ansys (version not detected - AWP_ROOT env var absent)", "not_detected"
+    if "nastran" in solver_hint.lower():
+        return "Nastran (version not in .f06; set by the solve environment)", "not_in_result"
+    return "unknown (not detected)", "not_detected"
+
+
+def _sha256_of(path: Path) -> str | None:
+    """SHA-256 of a file, or None if the path is missing."""
+    if not path or not Path(path).exists():
+        return None
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def build_manifest(results: dict, mode: str, *,
                    deck_path: Path | None = None,
-                   solver_version: str | None = None) -> dict:
-    """Assemble the run-manifest provenance block (NAFEMS R0033 spine)."""
+                   solver_version: str | None = None,
+                   superseded_by: str | None = None) -> dict:
+    """Assemble the run-manifest provenance block (NAFEMS R0033 spine).
+
+    Solver version is DETECTED (env vars), not hardcoded. Deck SHA is COMPUTED
+    when a deck path is supplied and exists; result SHA is carried from extract.
+    """
     qoi = results["primary_qoi"]
+    solver_hint = results.get("solver_hint", "Ansys")
+    if solver_version:
+        detected_ver = solver_version
+        version_source = "user-supplied"
+    else:
+        detected_ver, version_source = _detect_solver_version(solver_hint)
+    deck_sha = _sha256_of(deck_path) if deck_path else None
     return {
         "mode": mode,
         "_mode_enum": list(MODES),
-        "solver": results.get("solver_hint", "Ansys"),
-        "solver_version": solver_version or "2026R1 (v261)",  # confirmed in recon
+        "solver": solver_hint,
+        "solver_version": detected_ver,
+        "solver_version_source": version_source,
         "platform": f"{platform.system()} {platform.machine()}",
         "command_line": "(reported by the solve script that produced this result)",
         "units": "SI (m, kg, s, K, N, Pa, W)",
-        "analysis_type": results.get("solver_hint", "thermal"),
+        "analysis_type": solver_hint,
         "deck_path": str(deck_path) if deck_path else None,
-        "deck_sha256": None,  # filled when a deck path is supplied and exists
+        "deck_sha256": deck_sha,
         "result_files": [results["result_file"]],
         "result_sha256": results.get("result_sha256"),
         "mesh": {"n_nodes": results["mesh"]["nodes"],
@@ -86,7 +132,7 @@ def build_manifest(results: dict, mode: str, *,
         "gates_failed": [],
         "gates_not_done": [],
         "limitations": [],
-        "superseded_by": None,
+        "superseded_by": superseded_by,
     }
 
 
@@ -159,6 +205,65 @@ def evaluate_gates(results: dict, mode: str, manifest: dict,
     return gates
 
 
+def evaluate_readiness(results: dict, manifest: dict, gates: list[dict],
+                       gci: dict | None) -> dict:
+    """Summarize report evidence completeness without hiding limitations.
+
+    femis: the report can be issued, but missing verification evidence must stay
+    visible instead of being laundered into a green status.
+    """
+    items: list[dict] = []
+
+    def add(key: str, status: str, note: str, fix: str = ""):
+        items.append({"key": key, "status": status, "note": note, "fix": fix})
+
+    add("result_hash", "complete" if manifest.get("result_sha256") else "missing",
+        "result file SHA-256 captured" if manifest.get("result_sha256") else
+        "result file hash is missing",
+        "extract from a readable result file")
+    add("deck_hash", "complete" if manifest.get("deck_sha256") else "missing",
+        "input deck SHA-256 captured" if manifest.get("deck_sha256") else
+        "input deck was not supplied or could not be hashed",
+        "pass --deck path/to/input deck")
+
+    conv = results.get("convergence", {})
+    if conv.get("converged") is True:
+        add("convergence", "complete", conv.get("note", "convergence evidence present"))
+    elif conv.get("converged") is False:
+        add("convergence", "blocked", conv.get("note", "non-convergence detected"),
+            "fix the solve and regenerate the result")
+    else:
+        add("convergence", "missing", conv.get("note", "convergence evidence missing"),
+            "provide a solver log or monitor file")
+
+    if gci:
+        add("mesh_independence", "complete" if gci.get("verdict_level") == "pass" else "warning",
+            gci.get("verdict", "GCI study present"),
+            "refine further or add grids if GCI is not passing")
+    else:
+        add("mesh_independence", "missing", "GCI study not supplied",
+            "provide a gci_runs.json with at least three systematically refined grids")
+
+    has_geometry = not results.get("primary_qoi", {}).get("_nastran_no_geometry")
+    add("geometry", "complete" if has_geometry else "not_applicable",
+        "geometry available for contour views" if has_geometry else
+        ".f06 contains tabular results but no mesh geometry")
+
+    failed = [g for g in gates if g["verdict"] == "fail"]
+    not_done = [g for g in gates if g["verdict"] == "not_done"]
+    if failed or any(i["status"] == "blocked" for i in items):
+        status = "blocked"
+        summary = "Blocked: at least one gate or evidence item failed."
+    elif not_done or any(i["status"] == "missing" for i in items):
+        status = "issue_with_limitations"
+        summary = "Issue with limitations: report is traceable, but verification evidence is incomplete."
+    else:
+        status = "ready_to_issue"
+        summary = "Ready to issue: required evidence is complete."
+
+    return {"status": status, "summary": summary, "items": items}
+
+
 def run_gci(gci_runs: dict) -> dict:
     """Wrap femis/scripts/gci.gci() over the meshes in gci_runs.json.
 
@@ -183,8 +288,13 @@ def run_gci(gci_runs: dict) -> dict:
     return res
 
 
-def phrase_claim(mode: str, results: dict, gci: dict | None) -> str:
-    """Render the mode-correct claim sentence (femis claim-templates)."""
+def phrase_claim(mode: str, results: dict, gci: dict | None,
+                 gates: list[dict] | None = None) -> str:
+    """Render the mode-correct claim sentence (femis claim-templates).
+
+    `gates` is the list from evaluate_gates(); used to list which checks passed
+    in the ENGINEERING claim. Falls back to '(see gates)' if not supplied.
+    """
     qoi = results["primary_qoi"]
     if gci:
         disc_note = (f"Discretization error addressed: GCI_fine {gci['gci_fine_pct']:.2f}% "
@@ -193,6 +303,10 @@ def phrase_claim(mode: str, results: dict, gci: dict | None) -> str:
     else:
         disc_note = ("Discretization error: single-mesh — mesh independence NOT yet "
                      "demonstrated (no GCI).")
+    if gates:
+        passed = ", ".join(g["gate"] for g in gates if g["verdict"] == "pass") or "(none yet)"
+    else:
+        passed = "(see gates)"
     return CLAIM_TEMPLATES[mode].format(
         solver=results.get("solver_hint", "Ansys"),
         analysis=results.get("solver_hint", "thermal"),
@@ -200,7 +314,7 @@ def phrase_claim(mode: str, results: dict, gci: dict | None) -> str:
         qoi_name=qoi["name"], qoi_units=qoi["units"],
         qoi_range=fmt_qoi(qoi),
         qoi_range_max=fmt_qoi({**qoi, "min": qoi["max"]}),
-        gates_passed=", ".join(results.get("_passed", []) or ["(see gates)"]),
+        gates_passed=passed,
         gci_pct=f"{gci['gci_fine_pct']:.2f}" if gci else "N/A",
         disc_note=disc_note,
     )
@@ -218,12 +332,13 @@ def main() -> int:
     gci = run_gci(json.loads(args.gci.read_text(encoding="utf-8"))) if args.gci else None
     manifest = build_manifest(results, args.mode, deck_path=args.deck)
     gates = evaluate_gates(results, args.mode, manifest, gci)
-    claim = phrase_claim(args.mode, results, gci)
+    claim = phrase_claim(args.mode, results, gci, gates)
+    readiness = evaluate_readiness(results, manifest, gates, gci)
 
     args.results.parent.joinpath("manifest.json").write_text(
         json.dumps(manifest, indent=2), encoding="utf-8")
     checks = {"mode": args.mode, "claim": claim, "gates": gates,
-              "gci": gci, "femis_version": "1.0.2"}
+              "gci": gci, "readiness": readiness, "femis_version": "1.0.2"}
     args.results.parent.joinpath("checks.json").write_text(
         json.dumps(checks, indent=2), encoding="utf-8")
 

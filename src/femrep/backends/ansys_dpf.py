@@ -33,7 +33,7 @@ def element_histogram(meshed_region) -> dict:
     return counts
 
 
-def primary_qoi(model) -> dict:
+def primary_qoi(model, preferred: str | None = None) -> dict:
     """Pick the primary QoI, preferring the first NON-EMPTY result. A thermo-mechanical
     .rst may expose a `temperature` attribute that evals empty (no thermal DOFs solved),
     so we probe each candidate and fall through to stress/displacement."""
@@ -47,12 +47,15 @@ def primary_qoi(model) -> dict:
             return None
         return fc[0]
 
+    preferred = preferred or ""
     tfield = _try_temperature()
-    if tfield is not None:
+    if preferred in ("temperature", "temp") and tfield is None:
+        raise RuntimeError("requested QoI 'temperature' is not present in this result file")
+    if tfield is not None and preferred in ("", "temperature", "temp"):
         field = tfield
         name, units, to_c, data, nodal = "temperature", "K", True, \
             np.asarray(tfield.data, dtype=float), True
-    elif hasattr(results, "stress"):
+    elif hasattr(results, "stress") and preferred in ("", "stress", "von_mises_stress"):
         fc = results.stress().eval()
         field = fc[0] if fc and fc[0].data.size else None
         if field is not None:
@@ -71,14 +74,15 @@ def primary_qoi(model) -> dict:
             if data.ndim > 1:
                 data = np.linalg.norm(data, axis=1)
             name, units, to_c, nodal = "displacement_magnitude", "m", False, True
-    elif hasattr(results, "displacement"):
+    elif hasattr(results, "displacement") and preferred in ("", "displacement", "displacement_magnitude"):
         field = results.displacement().eval()[0]
         data = np.asarray(field.data, dtype=float)
         if data.ndim > 1:
             data = np.linalg.norm(data, axis=1)
         name, units, to_c, nodal = "displacement_magnitude", "m", False, True
     else:
-        raise RuntimeError("no recognizable non-empty QoI in result file")
+        raise RuntimeError(f"no recognizable non-empty QoI in result file"
+                           + (f" for requested '{preferred}'" if preferred else ""))
 
     out = {"name": name, "units": units,
            "min": float(np.min(data)), "max": float(np.max(data))}
@@ -150,7 +154,8 @@ def _qoi_stats(model) -> tuple[float, float, float]:
     return float(data.min()), float(data.max()), float(data.mean())
 
 
-def extract(result_file: Path, solve_log: Path | None = None) -> dict:
+def extract(result_file: Path, solve_log: Path | None = None,
+            qoi: str | None = None) -> dict:
     """Read one Ansys result file -> results dict. Detects + unfolds transient sequences."""
     sequence = _sequence_files(result_file)
     is_transient = len(sequence) > 1
@@ -170,7 +175,7 @@ def extract(result_file: Path, solve_log: Path | None = None) -> dict:
             "elements": int(mesh.elements.n_elements),
             "element_types": element_histogram(mesh),
         },
-        "primary_qoi": primary_qoi(fresh_model()),
+        "primary_qoi": primary_qoi(fresh_model(), qoi),
         "time_freq": _time_info(fresh_model(), len(sequence)),
         "available_results": sorted(r for r in dir(fresh_model().results) if not r.startswith("_")),
         "convergence": conv_mod.parse(_resolve_mntr(result_file, solve_log)),

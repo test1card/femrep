@@ -1,0 +1,12 @@
+{
+  "runs": [
+    {
+      "result": "examples/tiny_thermal.f06",
+      "out": "examples/demo_report.pdf",
+      "template": "client",
+      "html": true,
+      "package": true,
+      "no_figures": true
+    }
+  ]
+}

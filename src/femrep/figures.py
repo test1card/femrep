@@ -26,6 +26,54 @@ def _node_id_map(mesh) -> dict:
     return {int(nid): i for i, nid in enumerate(node_ids)}
 
 
+def _contour_grid(results: dict):
+    """Return (grid, qoi_name, units) with primary QoI scalars attached, or None."""
+    rfile = Path(results["result_file"])
+    if rfile.suffix.lower() not in (".rst", ".rth"):
+        return None  # no geometry in .f06/.op2-text -> no contour possible
+    if not rfile.exists():
+        return None
+    model = dpf.Model(str(rfile))
+    mesh = model.metadata.meshed_region
+    grid = mesh.grid
+    qoi_name = results["primary_qoi"]["name"]
+    # map our QoI name back to a raw DPF result operator
+    if qoi_name == "temperature":
+        op = model.results.temperature
+    elif qoi_name == "von_mises_stress":
+        op = model.results.stress  # compute von-Mises for the contour too
+    elif qoi_name == "displacement_magnitude":
+        op = model.results.displacement
+    else:
+        op = getattr(model.results, qoi_name, None) or model.results.temperature
+    field = op().eval()[0]
+    raw = np.asarray(field.data, dtype=float)
+    # reduce to a scalar per scoping entity (von-Mises for stress tensor, norm for vec)
+    if qoi_name == "von_mises_stress" and raw.ndim == 2 and raw.shape[1] == 6:
+        sxx, syy, szz = raw[:, 0], raw[:, 1], raw[:, 2]
+        sxy, syz, sxz = raw[:, 3], raw[:, 4], raw[:, 5]
+        vals = np.sqrt(0.5 * ((sxx - syy) ** 2 + (syy - szz) ** 2 + (szz - sxx) ** 2
+                              + 6 * (sxy ** 2 + syz ** 2 + sxz ** 2)))
+    elif raw.ndim > 1:
+        vals = np.linalg.norm(raw, axis=1)
+    else:
+        vals = raw
+    idx_of = _node_id_map(mesh)
+    field_ids = np.asarray(field.scoping.ids)
+    scalars = np.full(grid.n_points, np.nan)
+    # element-nodal stress: scoping may not align to node ids -> contour on
+    # node-averaged fallback; if mismatch, skip cleanly.
+    if len(field_ids) == len(vals):
+        for nid, v in zip(field_ids, vals):
+            i = idx_of.get(int(nid))
+            if i is not None:
+                scalars[i] = v
+    if np.all(np.isnan(scalars)):
+        return None
+    grid.point_data[qoi_name] = scalars
+    return grid, qoi_name, results["primary_qoi"]["units"]
+
+
 def contour(results: dict, out_dir: Path, *, name: str = "contour.png",
             cmap: str = "coolwarm") -> Path | None:
     """Render the primary QoI field as a 3D off-screen contour PNG.
@@ -34,52 +82,11 @@ def contour(results: dict, out_dir: Path, *, name: str = "contour.png",
     None and the report shows an honest placeholder. Re-opens the result file and
     maps the field onto mesh.grid by node id. Returns the PNG path or None.
     """
-    rfile = Path(results["result_file"])
-    if rfile.suffix.lower() not in (".rst", ".rth"):
-        return None  # no geometry in .f06/.op2-text -> no contour possible
-    if not rfile.exists():
-        return None
     try:
-        model = dpf.Model(str(rfile))
-        mesh = model.metadata.meshed_region
-        grid = mesh.grid
-        qoi_name = results["primary_qoi"]["name"]
-        # map our QoI name back to a raw DPF result operator
-        if qoi_name == "temperature":
-            op = model.results.temperature
-        elif qoi_name == "von_mises_stress":
-            op = model.results.stress  # compute von-Mises for the contour too
-        elif qoi_name == "displacement_magnitude":
-            op = model.results.displacement
-        else:
-            op = getattr(model.results, qoi_name, None) or model.results.temperature
-        field = op().eval()[0]
-        raw = np.asarray(field.data, dtype=float)
-        # reduce to a scalar per scoping entity (von-Mises for stress tensor, norm for vec)
-        if qoi_name == "von_mises_stress" and raw.ndim == 2 and raw.shape[1] == 6:
-            sxx, syy, szz = raw[:, 0], raw[:, 1], raw[:, 2]
-            sxy, syz, sxz = raw[:, 3], raw[:, 4], raw[:, 5]
-            vals = np.sqrt(0.5 * ((sxx - syy) ** 2 + (syy - szz) ** 2 + (szz - sxx) ** 2
-                                  + 6 * (sxy ** 2 + syz ** 2 + sxz ** 2)))
-        elif raw.ndim > 1:
-            vals = np.linalg.norm(raw, axis=1)
-        else:
-            vals = raw
-        idx_of = _node_id_map(mesh)
-        field_ids = np.asarray(field.scoping.ids)
-        scalars = np.full(grid.n_points, np.nan)
-        # element-nodal stress: scoping may not align to node ids -> contour on
-        # node-averaged fallback; if mismatch, skip cleanly (returns the grid as-is)
-        if len(field_ids) == len(vals):
-            for nid, v in zip(field_ids, vals):
-                i = idx_of.get(int(nid))
-                if i is not None:
-                    scalars[i] = v
-        if np.all(np.isnan(scalars)):  # couldn't map (elemental) -> no contour
+        payload = _contour_grid(results)
+        if payload is None:
             return None
-        grid.point_data[qoi_name] = scalars
-
-        units = results["primary_qoi"]["units"]
+        grid, qoi_name, units = payload
         p = pv.Plotter(off_screen=True, window_size=[1600, 1000])
         p.background_color = "white"
         p.add_mesh(grid, scalars=qoi_name, cmap=cmap,
@@ -88,6 +95,67 @@ def contour(results: dict, out_dir: Path, *, name: str = "contour.png",
         p.view_isometric()
         out = out_dir / name
         p.screenshot(str(out))
+        p.close()
+        return out
+    except Exception:
+        return None
+
+
+def contour_multiview(results: dict, out_dir: Path, *, name: str = "contour_views.png",
+                      cmap: str = "coolwarm") -> Path | None:
+    """Render a four-view contour plate so reports are not locked to one camera angle."""
+    try:
+        payload = _contour_grid(results)
+        if payload is None:
+            return None
+        grid, qoi_name, units = payload
+        p = pv.Plotter(off_screen=True, shape=(2, 2), window_size=[1800, 1400])
+        p.background_color = "white"
+        views = [
+            ("Isometric", "iso"),
+            ("Top", "xy"),
+            ("Front", "xz"),
+            ("Right", "yz"),
+        ]
+        for idx, (label, view) in enumerate(views):
+            p.subplot(idx // 2, idx % 2)
+            p.add_mesh(grid, scalars=qoi_name, cmap=cmap,
+                       scalar_bar_args={"title": f"{qoi_name} [{units}]",
+                                        "title_font_size": 14, "label_font_size": 10})
+            p.add_text(label, position="upper_left", font_size=12, color="#1f3a5f")
+            if view == "iso":
+                p.view_isometric()
+            elif view == "xy":
+                p.view_xy()
+            elif view == "xz":
+                p.view_xz()
+            elif view == "yz":
+                p.view_yz()
+            p.reset_camera()
+        out = out_dir / name
+        p.screenshot(str(out))
+        p.close()
+        return out
+    except Exception:
+        return None
+
+
+def interactive_contour_html(results: dict, out_dir: Path, *,
+                             name: str = "interactive_contour.html",
+                             cmap: str = "coolwarm") -> Path | None:
+    """Export a rotatable PyVista contour scene for HTML review."""
+    try:
+        payload = _contour_grid(results)
+        if payload is None:
+            return None
+        grid, qoi_name, units = payload
+        p = pv.Plotter(off_screen=True, window_size=[1200, 850])
+        p.background_color = "white"
+        p.add_mesh(grid, scalars=qoi_name, cmap=cmap,
+                   scalar_bar_args={"title": f"{qoi_name} [{units}]"})
+        p.view_isometric()
+        out = out_dir / name
+        p.export_html(str(out))
         p.close()
         return out
     except Exception:
@@ -218,6 +286,7 @@ def generate(results: dict, gci: dict | None, out_dir: Path) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     return {
         "contour": contour(results, out_dir),
+        "contour_views": contour_multiview(results, out_dir),
         "deformed_shape": deformed_shape(results, out_dir),
         "time_history": time_history(results, out_dir),
         "gci_convergence": gci_convergence(gci, out_dir),

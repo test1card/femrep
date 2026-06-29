@@ -23,8 +23,10 @@ def demo(result_file: Path, out_dir: Path, mode: str = "ENGINEERING") -> Path:
     # 2. govern (femis: manifest + gates + claim phrasing)
     manifest = govern.build_manifest(results, mode, deck_path=None)
     gates = govern.evaluate_gates(results, mode, manifest, gci=None)
-    claim = govern.phrase_claim(mode, results, gci=None)
-    checks = {"mode": mode, "claim": claim, "gates": gates, "gci": None}
+    claim = govern.phrase_claim(mode, results, gci=None, gates=gates)
+    readiness = govern.evaluate_readiness(results, manifest, gates, gci=None)
+    checks = {"mode": mode, "claim": claim, "gates": gates,
+              "gci": None, "readiness": readiness}
     (out_dir / "manifest.json").write_text(
         __import__("json").dumps(manifest, indent=2), encoding="utf-8")
     (out_dir / "checks.json").write_text(

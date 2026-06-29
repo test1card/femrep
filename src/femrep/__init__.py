@@ -10,7 +10,7 @@ Layers (each reads the previous layer's JSON, each runnable standalone):
     figures.py  -> *.png           (pyvista contour + matplotlib time-history)
     report_pdf.py / report_docx.py -> PDF / DOCX
 
-Invoke:  femrep <result_file> [--mode ENGINEERING]    (CLI)
+Invoke:  femrep <result_file>                         (CLI)
          femrep-gui                                     (PySide6 desktop)
 """
 __version__ = "0.2.0"

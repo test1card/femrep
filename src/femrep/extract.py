@@ -26,20 +26,34 @@ def sha256_of(path: Path) -> str:
     return h.hexdigest()
 
 
-def extract(result_file: Path, solve_log: Path | None = None) -> dict:
+def extract(result_file: Path, solve_log: Path | None = None,
+            qoi: str | None = None) -> dict:
     """Read one result file -> results dict (the report's data spine)."""
     adapter = backends.adapter_for(result_file.suffix)
     if adapter is None:
         raise ValueError(f"no backend for {result_file.suffix} "
                          f"(supported: {list(backends.REGISTRY)})")
-    payload = adapter(result_file, solve_log)
+    payload = adapter(result_file, solve_log, qoi)
     # envelope: provenance + timestamp on top of whatever the adapter returned
     payload.update({
         "extracted_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "result_file": str(result_file),
         "result_sha256": sha256_of(result_file),
     })
+    payload["qoi_catalog"] = _qoi_catalog(payload)
     return payload
+
+
+def _qoi_catalog(payload: dict) -> list[dict]:
+    primary = payload.get("primary_qoi", {})
+    catalog = []
+    if primary.get("name"):
+        catalog.append({"name": primary["name"], "role": "primary",
+                        "units": primary.get("units", "")})
+    for name in payload.get("available_results", []):
+        if name != primary.get("name"):
+            catalog.append({"name": name, "role": "available", "units": ""})
+    return catalog
 
 
 def main() -> int:
@@ -47,12 +61,14 @@ def main() -> int:
     ap.add_argument("result_file", type=Path)
     ap.add_argument("--log", type=Path, default=None,
                     help="solve .mntr/.out (Ansys) or .log/.f06 convergence")
+    ap.add_argument("--qoi", default=None,
+                    help="preferred primary QoI when the backend supports it")
     ap.add_argument("--out", type=Path, default=Path("results.json"))
     args = ap.parse_args()
     if not args.result_file.exists():
         print(f"ERROR: {args.result_file} not found", flush=True)
         return 1
-    payload = extract(args.result_file, args.log)
+    payload = extract(args.result_file, args.log, args.qoi)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     q = payload.get("primary_qoi", {})

@@ -78,14 +78,17 @@ def _page_decorations(canvas, doc, cfg, meta):
 
 
 def _cover_band(story, cfg, manifest, meta, st):
-    """Cover: title band with primary color, key facts, mode label."""
+    """Cover: title band with primary color and public report facts."""
     w, _ = A4 if cfg.get("page_size", "A4") == "A4" else LETTER
+    doc_id = cfg.get("document_number") or "uncontrolled draft"
+    rev = cfg.get("revision") or "-"
     band = Table([[Paragraph(cfg.get("title", "FEM Analysis Report"), st["title"])],
                   [Paragraph(f"{manifest.get('analysis_type','').split(' ')[0]} analysis · "
                              f"{manifest.get('solver','')} {manifest.get('solver_version','')}",
                              st["subtitle"])],
                   [Paragraph(f"Generated {meta.get('generated','')[:10]}  ·  "
-                             f"<b>Mode: {manifest['mode']}</b>", st["subtitle"])]],
+                             f"<b>Issued engineering report</b>  ·  Doc {doc_id} Rev {rev}",
+                             st["subtitle"])]],
                  colWidths=[w - 40 * mm])
     band.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), _hex(cfg["color_primary"])),
@@ -176,6 +179,26 @@ def _gci_table(gci: dict | None, cfg, st) -> Table:
     return t
 
 
+def _readiness_table(readiness: dict | None, cfg, st) -> Table | Paragraph:
+    if not readiness:
+        return Paragraph("Readiness summary not available.", st["small"])
+    rows = [["Evidence", "Status", "Note"]]
+    for item in readiness.get("items", []):
+        rows.append([item["key"], item["status"], Paragraph(item["note"], st["small"])])
+    t = Table(rows, colWidths=[42 * mm, 35 * mm, 88 * mm])
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), _hex(cfg["color_primary"])),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, _hex("#f8f9fa")]),
+        ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LINEBELOW", (0, 0), (-1, -1), 0.25, _hex(cfg["color_muted"])),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    return t
+
+
 def _add_figure(story, path: Path | None, caption: str, cfg, st, width_mm=150):
     if not path or not Path(path).exists():
         story.append(Paragraph(f"<i>{caption}</i> [figure not available]", st["small"]))
@@ -240,6 +263,7 @@ def render(results: dict, manifest: dict, checks: dict, cfg: dict,
     meta = {**meta, "sha": results.get("result_sha256", "")}
     qoi = results["primary_qoi"]
     gci = checks.get("gci")
+    readiness = checks.get("readiness")
     page_size = A4 if cfg.get("page_size", "A4") == "A4" else LETTER
 
     doc = BaseDocTemplate(str(out_path), pagesize=page_size,
@@ -264,12 +288,18 @@ def render(results: dict, manifest: dict, checks: dict, cfg: dict,
     story.append(Paragraph("1. Summary", st["h2"]))
     story.append(Paragraph(checks["claim"].replace("**", ""), st["claim"]))
     story.append(_kv_table([
+        ("Readiness", readiness.get("summary", "(not evaluated)") if readiness else "(not evaluated)"),
         ("Primary QoI", f"{qoi['name']} ({qoi['units']})"),
+        ("QoI catalog", ", ".join(i["name"] for i in results.get("qoi_catalog", [])) or "(not available)"),
         ("Range", f"{qoi['min']} .. {qoi['max']}  "
                   + (f"({qoi.get('min_C')} .. {qoi.get('max_C')} °C)" if 'min_C' in qoi else "")),
         ("Hot node", f"{qoi['hot_node']} @ {qoi['hot_node_xyz_mm']} mm"),
         ("Cold node", f"{qoi['cold_node']} @ {qoi['cold_node_xyz_mm']} mm"),
-        ("Execution mode", manifest["mode"]),
+        ("Report status", "Issued"),
+        ("Project", cfg.get("project") or "(not specified)"),
+        ("Customer", cfg.get("customer") or "(not specified)"),
+        ("Prepared / checked / approved",
+         f"{cfg.get('prepared_by') or '-'} / {cfg.get('checked_by') or '-'} / {cfg.get('approved_by') or '-'}"),
     ], cfg, st))
 
     # --- 2. Model ---
@@ -321,6 +351,8 @@ def render(results: dict, manifest: dict, checks: dict, cfg: dict,
 
     # --- 6. Results ---
     story.append(Paragraph("6. Results", st["h2"]))
+    _add_figure(story, figures.get("contour_views"),
+                "QoI field contour, four-view plate.", cfg, st, width_mm=165)
     _add_figure(story, figures.get("contour"), "QoI field contour (pyvista off-screen).",
                 cfg, st)
     _add_figure(story, figures.get("deformed_shape"),
@@ -338,6 +370,10 @@ def render(results: dict, manifest: dict, checks: dict, cfg: dict,
     # --- 8. Governance ---
     story.append(Paragraph("8. Governance (femis)", st["h2"]))
     story.append(Paragraph("Gates — each verdict is computed, never invented to 'pass'.", st["body"]))
+    if readiness:
+        story.append(Paragraph(readiness.get("summary", ""), st["claim"]))
+    story.append(_readiness_table(readiness, cfg, st))
+    story.append(Spacer(1, 4 * mm))
     story.append(_gates_table(checks["gates"], cfg, st))
 
     # --- 9. Manifest ---

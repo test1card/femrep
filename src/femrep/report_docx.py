@@ -92,6 +92,7 @@ def render(results: dict, manifest: dict, checks: dict, cfg: dict,
     doc = Document()
     qoi = results["primary_qoi"]
     gci = checks.get("gci")
+    readiness = checks.get("readiness")
     primary = cfg.get("color_primary", "1F3A5F").lstrip("#")
 
     # --- Cover ---
@@ -100,8 +101,10 @@ def render(results: dict, manifest: dict, checks: dict, cfg: dict,
         f"{manifest.get('analysis_type','').split(' ')[0]} analysis · "
         f"{manifest.get('solver','')} {manifest.get('solver_version','')}")
     sub.runs[0].font.color.rgb = _hex_rgb("868E96")
+    doc_id = cfg.get("document_number") or "uncontrolled draft"
+    rev = cfg.get("revision") or "-"
     p = doc.add_paragraph(f"Generated {meta.get('generated','')[:10]}  ·  "
-                          f"Execution mode: {manifest['mode']}")
+                          f"Issued engineering report  ·  Doc {doc_id} Rev {rev}")
     p.runs[0].bold = True
     doc.add_paragraph()
 
@@ -110,12 +113,18 @@ def render(results: dict, manifest: dict, checks: dict, cfg: dict,
     claim_p = doc.add_paragraph(checks["claim"].replace("**", ""))
     claim_p.style = doc.styles["Intense Quote"] if "Intense Quote" in [s.name for s in doc.styles] else None
     _add_table(doc, ["Field", "Value"], [
+        ["Readiness", readiness.get("summary", "(not evaluated)") if readiness else "(not evaluated)"],
         ["Primary QoI", f"{qoi['name']} ({qoi['units']})"],
+        ["QoI catalog", ", ".join(i["name"] for i in results.get("qoi_catalog", [])) or "(not available)"],
         ["Range", f"{qoi['min']} .. {qoi['max']}  "
                   + (f"({qoi.get('min_C')} .. {qoi.get('max_C')} °C)" if 'min_C' in qoi else "")],
         ["Hot node", f"{qoi['hot_node']} @ {qoi['hot_node_xyz_mm']} mm"],
         ["Cold node", f"{qoi['cold_node']} @ {qoi['cold_node_xyz_mm']} mm"],
-        ["Execution mode", manifest["mode"]],
+        ["Report status", "Issued"],
+        ["Project", cfg.get("project") or "(not specified)"],
+        ["Customer", cfg.get("customer") or "(not specified)"],
+        ["Prepared / checked / approved",
+         f"{cfg.get('prepared_by') or '-'} / {cfg.get('checked_by') or '-'} / {cfg.get('approved_by') or '-'}"],
     ], widths_cm=[5, 11], primary_hex=primary)
 
     # --- 2. Model ---
@@ -159,7 +168,8 @@ def render(results: dict, manifest: dict, checks: dict, cfg: dict,
 
     # --- 6. Results (figures) ---
     _h(doc, "6. Results", color_hex=primary)
-    for key, cap in [("contour", "QoI field contour (pyvista off-screen)."),
+    for key, cap in [("contour_views", "QoI field contour, four-view plate."),
+                     ("contour", "QoI field contour (pyvista off-screen)."),
                      ("deformed_shape", "Undeformed (wireframe) vs deformed shape (scaled)."),
                      ("time_history", "Transient time-history / QoI snapshot.")]:
         fp = figures.get(key)
@@ -189,6 +199,12 @@ def render(results: dict, manifest: dict, checks: dict, cfg: dict,
 
     # --- 8. Governance (gates) ---
     _h(doc, "8. Governance (femis)", color_hex=primary)
+    if readiness:
+        doc.add_paragraph(readiness.get("summary", ""))
+        _add_table(doc, ["Evidence", "Status", "Note"],
+                   [[i["key"], i["status"], i["note"]]
+                    for i in readiness.get("items", [])],
+                   widths_cm=[4.5, 3, 8.5], primary_hex=primary)
     gate_rows = []
     for g in checks["gates"]:
         sym = {"pass": "PASS", "fail": "FAIL", "not_done": "—"}.get(g["verdict"], "?")
