@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# femrep generated artifacts (reports, intermediate JSON, figures)
+femrep_out/
+out/
+*.pdf
+*.docx
+!docs/**/*.pdf
+
+# Local config / scratch
+config.local.yaml
+*.log
+
+# OS
+Thumbs.db
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

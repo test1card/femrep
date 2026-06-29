@@ -1,0 +1,15 @@
+# femrep branding / report config — neutral default, fully overridable.
+# (ponytail: YAML parsed with the stdlib-free dependency we already added, jinja2
+#  isn't a yaml parser — we read this with a tiny stdlib-ish loader. For now it is
+#  plain key:value; a real yaml lib lands only if nesting is needed.)
+title: "FEM Analysis Report"
+author: "Engineer"
+company: ""
+logo: null          # path to a PNG logo, or null for a text wordmark
+color_primary: "#1f3a5f"     # deep blue
+color_accent: "#0b7285"      # teal
+color_warn: "#c92a2a"        # red (failed gates)
+color_ok: "#2b8a3e"          # green (passed gates)
+color_muted: "#868e96"
+font: "Helvetica"
+page_size: "A4"

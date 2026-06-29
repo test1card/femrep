@@ -1,0 +1,40 @@
+[project]
+name = "femrep"
+version = "0.2.0"
+description = "femis-governed Ansys/Nastran FEM report generator — turns result files into defensible, standardized PDF/DOCX reports"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "The femrep Authors" }]
+keywords = ["FEA", "FEM", "CAE", "Ansys", "Nastran", "report", "GCI", "V&V", "provenance"]
+
+dependencies = [
+    "ansys-dpf-core>=0.16",
+    "numpy>=1.26",
+    "pyvista>=0.43",
+    "matplotlib>=3.7",
+    "jinja2>=3.1",
+    "reportlab>=4.0",
+    "python-docx>=1.1",
+    "pandas>=2.0",
+]
+
+[project.optional-dependencies]
+gui = ["PySide6>=6.5"]
+# pyNastran (.op2 backend) is optional: it pins numpy 1.26.4 which does not build
+# on Python 3.14. The .f06 backend has no such constraint and is the default.
+op2 = ["pyNastran>=1.4"]
+dev = ["pytest>=7.0", "pypdf>=4.0"]
+
+[project.scripts]
+femrep = "femrep.cli:main"
+
+[project.gui-scripts]
+femrep-gui = "femrep.gui:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/femrep"]

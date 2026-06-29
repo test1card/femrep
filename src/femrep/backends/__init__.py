@@ -1,0 +1,33 @@
+"""femrep.backends — backend registry: one adapter per solver/result format.
+
+Each adapter has signature  extract(result_file: Path, solve_log: Path|None) -> dict
+and returns the SAME results.json schema, so govern/figures/render are untouched.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+from . import ansys_dpf
+
+
+def _op2_adapter(result_file: Path, solve_log: Path | None = None) -> dict:
+    """Placeholder until M10: .op2 routes to the .f06 companion or reports unsupported."""
+    from . import nastran_op2
+    return nastran_op2.extract(result_file, solve_log)
+
+
+def _f06_adapter(result_file: Path, solve_log: Path | None = None) -> dict:
+    from . import nastran_f06
+    return nastran_f06.extract(result_file, solve_log)
+
+
+REGISTRY = {
+    ".rth": ansys_dpf.extract,
+    ".rst": ansys_dpf.extract,
+    ".f06": _f06_adapter,
+    ".op2": _op2_adapter,
+}
+
+
+def adapter_for(suffix: str):
+    return REGISTRY.get(suffix.lower())
