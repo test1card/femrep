@@ -20,6 +20,10 @@ from femrep.workflow import classify_input
     ("solve.out", "log"),
     ("solve.log", "log"),
     ("gci_runs.json", "gci"),
+    ("my_gci.json", "gci"),
+    ("template.json", "unknown"),   # a non-GCI .json must not be fed to run_gci
+    ("results.json", "unknown"),
+    ("batch.json", "unknown"),
     ("deck.dat", "deck"),
     ("deck.bdf", "deck"),
     ("deck.inp", "deck"),

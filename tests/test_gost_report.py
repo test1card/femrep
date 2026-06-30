@@ -27,8 +27,12 @@ def _fixture():
         "mesh": {"nodes": 10, "elements": 4, "element_types": {"tet": 4}},
         "convergence": {"converged": True, "substeps": 1, "note": "ок"},
     }
-    manifest = {"analysis_type": "thermal", "units": "SI (m, kg, s, K, N, Pa, W)", "solver": "Nastran",
-                "solver_version": "0.1", "platform": "darwin", "command_line": "femrep ...",
+    # real .f06-backend strings: solver carries a parenthetical, version is an honest
+    # English placeholder — neither may leak English prose into the Russian report
+    manifest = {"analysis_type": "thermal", "units": "SI (m, kg, s, K, N, Pa, W)",
+                "solver": "nastran steady_thermal (.f06)",
+                "solver_version": "Nastran (version not in .f06; set by the solve environment)",
+                "platform": "darwin", "command_line": "femrep ...",
                 "deck_path": None, "superseded_by": None}
     checks = {"claim": "...", "gci": None,
               "gates": [{"gate": "units", "verdict": "pass", "note": ""},
@@ -72,6 +76,10 @@ def test_gost_has_no_english_label_words():
     # units must be transliterated to Russian, not left as 'SI (m, kg, ...)'
     assert "kg" not in text and "SI (" not in text
     assert "СИ (м" in text
+    # solver version English placeholder must not leak; title must not stay English
+    assert "version not in" not in text and "environment" not in text
+    assert "FEM" not in text
+    assert "версия не определена" in text
 
 
 def test_gost_formatting_font_spacing_margins():

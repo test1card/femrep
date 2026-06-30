@@ -31,11 +31,16 @@ _INPUT_ROLES: dict[str, tuple[str, ...]] = {
 def classify_input(path) -> str:
     """Classify an attached file into a role by its suffix (case-insensitive).
 
-    Returns one of "result", "log", "gci", "deck", or "unknown".
+    Returns one of "result", "log", "gci", "deck", or "unknown". A .json is only a
+    GCI study when its name says so (e.g. gci_runs.json) — a template/results/batch
+    JSON must not be fed to run_gci, which would crash on a missing 'grids' key.
     """
-    suffix = Path(path).suffix.lower()
+    p = Path(path)
+    suffix = p.suffix.lower()
     for role, suffixes in _INPUT_ROLES.items():
         if suffix in suffixes:
+            if role == "gci" and "gci" not in p.name.lower():
+                return "unknown"
             return role
     return "unknown"
 

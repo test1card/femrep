@@ -89,8 +89,12 @@ class PipelineWorker(QThread):
             figures = {}
             if self.gen_figures:
                 self.progress.emit("rendering figures…")
-                from . import figures as fig_mod
-                figures = fig_mod.generate(results, gci, self.out_dir)
+                try:    # figures are optional — a render/DPF/pyvista failure must not
+                        # block the report, mirroring workflow.run_report
+                    from . import figures as fig_mod
+                    figures = fig_mod.generate(results, gci, self.out_dir)
+                except Exception as e:
+                    self.progress.emit(f"figures skipped: {e}")
             review_html = workflow.render_html_review(results, manifest, checks, figures, self.out_dir)
 
             self.finished_ok.emit({"results": results, "manifest": manifest,
@@ -530,13 +534,15 @@ class FemrepWindow(QMainWindow):
         if result_file is None:
             QMessageBox.warning(self, "femrep", "Сначала прикрепите файл результатов.")
             return
+        # mirror the CLI: an .op2 with a sibling .f06 resolves to the .f06 backend
+        result_file, deck = workflow.resolve_inputs(result_file, self.attachments.get("deck"))
         self.out_dir = Path.cwd() / "femrep_out" / result_file.stem
         self.out_dir.mkdir(parents=True, exist_ok=True)
         self.btn_run.setEnabled(False); self.progress.setVisible(True); self.progress.setRange(0, 0)
         self.lbl_status.setText("выполняется…")
         self.worker = PipelineWorker(
             result_file, self.report_mode,
-            self.attachments.get("log"), self.attachments.get("deck"),
+            self.attachments.get("log"), deck,
             self.attachments.get("gci"), self.out_dir, self.chk_figs.isChecked())
         self.worker.progress.connect(self._on_progress)
         self.worker.finished_ok.connect(self._on_done)

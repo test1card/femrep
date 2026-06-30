@@ -84,7 +84,8 @@ _READINESS_STATUS = {
                               "но часть верификационных свидетельств отсутствует.",
     "blocked": "Заблокировано: не пройден хотя бы один критерий или свидетельство.",
 }
-_ANALYSIS = {"thermal": "тепловой", "structural": "прочностной"}
+_ANALYSIS = {"thermal": "тепловой", "structural": "прочностной",
+             "static": "прочностной", "modal": "модальный"}
 _QOI = {
     "temperature": "температура",
     "von_mises_stress": "эквивалентные напряжения (по Мизесу)",
@@ -125,6 +126,20 @@ def units_ru(u: str) -> str:
 
 _UNIT_TOKENS = {"SI": "СИ", "m": "м", "kg": "кг", "s": "с", "K": "К", "N": "Н",
                 "Pa": "Па", "W": "Вт", "mm": "мм", "A": "А", "mol": "моль", "cd": "кд"}
+
+
+def solver_line_ru(manifest: dict) -> str:
+    """Russian 'решатель + версия' cell. The solver name is a proper noun (first
+    token, e.g. Nastran/Ansys); the version is kept only when it looks like a real
+    version number, otherwise the honest English placeholder ('version not in .f06
+    …') is replaced with «версия не определена» so no English prose leaks."""
+    import re
+    name = (manifest.get("solver") or "—").split()
+    name = name[0].capitalize() if name else "—"
+    ver = (manifest.get("solver_version") or "").strip()
+    if not re.match(r"^[\dvVвВ]?\d", ver):     # not a real version token
+        ver = "версия не определена"
+    return f"{name}, {ver}"
 
 
 def units_full_ru(s: str) -> str:

@@ -134,8 +134,8 @@ def _titul(doc, cfg, manifest, meta):
     for _ in range(3):
         _p(doc, "", indent=False)
     _p(doc, L.TITLE["report_kind"], align=WD_ALIGN_PARAGRAPH.CENTER, bold=True, indent=False)
-    title = b.get("title")
-    if not title or title == "FEM Analysis Report":   # English config default → Russian
+    title = b.get("title") or ""
+    if not title or title.startswith("FEM "):   # any English built-in/seeded title → Russian
         title = "Отчёт о конечно-элементном расчёте"
     _p(doc, title, align=WD_ALIGN_PARAGRAPH.CENTER, bold=True, indent=False)
     kind = (L.TITLE["report_type_interim"] if (b.get("report_type") == "interim")
@@ -215,7 +215,7 @@ def _g_solve(doc, n, ctx):
         ["Вывод по сходимости", verdict],
         ["Подшаги / выводы", str(c.get("substeps", "—"))],
         ["Примечание", c.get("note", "—") if _is_ru(c.get("note", "")) else "—"],
-        ["Решатель", f"{m.get('solver','')} {m.get('solver_version','')}"],
+        ["Решатель", L.solver_line_ru(m)],
     ])
 
 
@@ -269,7 +269,7 @@ def _g_manifest(doc, n, ctx):
        indent=False)
     _table(doc, ctx["nt"](), "Протокол вычислений",
            [L.HDR["param"], L.HDR["value"]], [
-        ["Решатель / версия", f"{m.get('solver','')} {m.get('solver_version','')}"],
+        ["Решатель / версия", L.solver_line_ru(m)],
         ["Расчётная модель", Path(m.get("deck_path")).name if m.get("deck_path") else "не предоставлена"],
         ["Дата формирования", (ctx["meta"].get("generated", "")[:10] if ctx.get("meta") else "")],
     ])
@@ -307,7 +307,10 @@ def build_gost_doc(results: dict, manifest: dict, checks: dict, cfg: dict,
 
     sections = _enabled_sections(cfg)
     # реферат volume counts (figures from present files; tables predicted)
-    n_tables = sum(_TABLES_PER_SECTION.get(s["key"], 0) for s in sections if s.get("enabled", True))
+    # gci renders a table only when a study exists; otherwise it is prose (don't count it)
+    n_tables = sum(_TABLES_PER_SECTION.get(s["key"], 0) for s in sections
+                   if s.get("enabled", True)
+                   and not (s["key"] == "gci" and not checks.get("gci")))
     n_figs = sum(1 for s in sections if s.get("enabled", True)
                  for k in _FIG_KEYS.get(s["key"], []) if (figures or {}).get(k)
                  and Path(figures[k]).exists())
