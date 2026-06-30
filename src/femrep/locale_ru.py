@@ -266,3 +266,156 @@ def readiness_note_ru(item: dict) -> str:
                      "not_applicable": "Табличные результаты без геометрии модели."},
     }
     return table.get(key, {}).get(status, status_ru(status))
+
+
+# --- GUI (PySide6 desktop app) strings ---------------------------------------
+# Centralized here so gui.py holds no hardcoded label text and a zero-English
+# test can scan a single source. Proper nouns (femrep/femis/Ansys/Nastran) and
+# abbreviations (GCI/QoI/PDF/DOCX) are intentionally kept.
+
+# Built-in entries always present in the main-window «Шаблон» dropdown.
+BUILTIN_DEFAULT_LABEL = "По умолчанию"
+BUILTIN_GOST_LABEL = "ГОСТ 7.32-2017 (DOCX, рус.)"
+
+# Branding / title-block field labels (template editor). Keys mirror
+# templates.DEFAULT_BRANDING; unknown keys pass through unchanged.
+BRANDING_LABELS = {
+    "title": "Название",
+    "author": "Автор",
+    "company": "Организация",
+    "project": "Проект",
+    "customer": "Заказчик",
+    "document_number": "Номер документа",
+    "revision": "Редакция",
+    "prepared_by": "Подготовил",
+    "checked_by": "Проверил",
+    "approved_by": "Утвердил",
+    "logo": "Логотип",
+    "color_primary": "Основной цвет",
+    "color_accent": "Акцентный цвет",
+    "color_warn": "Цвет предупреждения",
+    "color_ok": "Цвет «норма»",
+    "color_muted": "Приглушённый цвет",
+    "font": "Шрифт",
+    "page_size": "Размер страницы",
+    "ministry": "Министерство (ведомство)",
+    "udc": "УДК",
+    "city": "Город",
+    "year": "Год",
+    "report_type": "Вид отчёта",
+    "head_org_title": "Должность руководителя организации",
+    "head_work_title": "Должность руководителя НИР",
+}
+
+
+def branding_label(key: str) -> str:
+    return BRANDING_LABELS.get(key, key)
+
+
+GUI = {
+    # window / brand
+    "window_title": "femrep — генератор отчётов по МКЭ под управлением femis",
+    "brand_sub": "FEM-отчёты под femis",
+    "rail_hint": "femis: вывод не сильнее своей проверки.",
+    # step / card titles
+    "step_result": "Результат",
+    "step_check": "Проверка",
+    "step_template": "Шаблон",
+    "step_export": "Экспорт",
+    # step 1 (result)
+    "card1_sub": "Перетащите сюда любые файлы — результат, журнал, сетки GCI "
+                 "или расчётную модель. Роль определяется автоматически.",
+    "sec_attachments": "Вложения",
+    "drop_text": "Перетащите файлы или нажмите, чтобы выбрать\n"
+                 "результат · журнал · GCI · расчётная модель",
+    "attach_required": "файл результата обязателен (.rst / .rth / .f06 / .op2)",
+    "attach_ready": "готово к извлечению",
+    "with_figures": "С иллюстрациями",
+    "btn_extract": "Извлечь и проверить →",
+    "attach_remove_tip": "Убрать",
+    # step 2 (check)
+    "card2_sub": "Результаты извлечены. Проверьте величину интереса и вердикты "
+                 "проверок femis перед выпуском отчёта.",
+    "sec_contour": "Контур",
+    "preview_placeholder": "предпросмотр контура появится после извлечения",
+    "sec_qoi": "Сводка показателей",
+    "sec_gates": "Проверки femis",
+    "sec_claim": "Утверждение femis",
+    "contour_unavailable": "контур недоступен",
+    "contour_unavailable_hint": "контур недоступен — см. историю по времени в отчёте",
+    "btn_open_review": "Открыть HTML-обзор",
+    "btn_next": "Далее →",
+    "btn_back": "Назад",
+    # step 3 (template)
+    "card3_sub": "Проект и шаблон задают брендинг, разделы и профиль (например, ГОСТ).",
+    "sec_project": "Проект",
+    "btn_open_project": "Открыть / создать проект…",
+    "btn_open_project_tip": "Открыть или создать папку проекта femrep с шаблонами",
+    "project_none": "проект не выбран — встроенная разметка",
+    "sec_template": "Шаблон оформления",
+    "btn_manage_templates": "Управление шаблонами…",
+    "sec_content": "Содержание отчёта (что попадёт в отчёт)",
+    "avail_yes": "доступно",
+    "avail_example": "контрольный пример",
+    "avail_no_gci": "нет данных GCI",
+    # step 4 (export)
+    "card4_sub": "Сводка форматирования. Нажмите, чтобы сгенерировать итоговый отчёт.",
+    "sec_summary": "Сводка",
+    "sec_sections": "Разделы отчёта",
+    "sections_none": "разделы не выбраны",
+    "sec_format": "Формат",
+    "gost_note": "Профиль ГОСТ — отчёт будет сохранён как русский .docx "
+                 "(формат выбран автоматически).",
+    "btn_generate": "Сгенерировать отчёт",
+    "export_project": "Проект",
+    "export_template": "Шаблон",
+    "export_profile": "Профиль",
+    "profile_default_name": "стандартный",
+    # status
+    "status_running": "выполняется…",
+    "status_done": "готово",
+    "status_error": "ОШИБКА",
+    # dialogs / messages (modal — covered by the string-level test)
+    "dlg_attach_files": "Выберите файлы",
+    "filter_all": "Все файлы (*.*)",
+    "dlg_open_project": "Открыть или создать папку проекта femrep",
+    "dlg_save_report": "Сохранить отчёт",
+    "filter_report": "Отчёт (*{ext})",
+    "msg_attach_first": "Сначала прикрепите файл результатов.",
+    "msg_extract_first": "Сначала извлеките результаты (шаг 1).",
+    "msg_open_project_first": "Сначала откройте проект, чтобы хранить шаблоны.",
+    "msg_load_template_failed": "Не удалось загрузить шаблон {name}: {err}",
+    "msg_report_saved": "Отчёт сохранён:\n{path}",
+    "msg_render_failed": "Не удалось сформировать отчёт:\n{err}",
+    "startup_error_title": "femrep — ошибка запуска",
+    "startup_error_body": "{tb}\n\nЛог: {path}",
+    # template editor (dialog)
+    "td_title": "femrep — шаблоны отчёта",
+    "td_list_header": "Шаблоны в этом проекте:",
+    "td_new_blank": "Создать пустой",
+    "td_new_from_result": "Создать из результата…",
+    "td_duplicate": "Дублировать",
+    "td_delete": "Удалить",
+    "td_name": "Название",
+    "td_profile": "Профиль",
+    "profile_default_label": "Стандартный (PDF/DOCX)",
+    "profile_gost_label": "ГОСТ 7.32-2017 (DOCX, рус.)",
+    "td_branding_header": "Брендинг / титульный блок:",
+    "td_sections_header": "Разделы (отметьте для включения, порядок — кнопками ↑/↓):",
+    "td_intro": "Вступление:",
+    "td_intro_placeholder": "необязательный текст под заголовком раздела",
+    "td_save": "Сохранить шаблон",
+    "td_copy_suffix": "копия",
+    "td_new_template_title": "Новый шаблон",
+    "td_new_template_prompt": "Название шаблона:",
+    "td_new_template_default": "Новый шаблон",
+    "td_default_template_name": "По умолчанию",
+    "td_seed_result_title": "Файл результата для основы шаблона",
+    "filter_results": "Результаты (*.rst *.rth *.f06 *.op2);;Все файлы (*.*)",
+    "td_seed_failed": "Не удалось прочитать результат для основы шаблона:\n{err}",
+    "td_logo_title": "Изображение логотипа",
+    "filter_images": "Изображения (*.png *.jpg *.jpeg)",
+    "td_saved": "Шаблон сохранён:\n{path}",
+    "td_delete_confirm": "Удалить шаблон {name}?",
+    "td_from_result_name": "Из результата",
+}
