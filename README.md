@@ -73,6 +73,23 @@ sections, fill in your branding, and Save. Pick it from the **Template** dropdow
 before *Generate report*. From the CLI, pass `--template-file <name>.json`. With
 no template, the full nine-section report renders exactly as before.
 
+### Russian GOST report (ГОСТ 7.32-2017)
+
+A template can set `profile: "gost_ru"` to emit a **fully Russian отчёт о НИР** as
+DOCX, structured and formatted per ГОСТ 7.32-2017 (титульный лист, реферат,
+содержание, введение, нумерованная основная часть, заключение; Times New Roman
+14, полуторный интервал, поля 30/15/20/20 мм, сквозная нумерация). The реферат,
+введение, and заключение are auto-generated from the results to minimize manual
+editing. Select **Профиль → ГОСТ 7.32-2017** in the GUI, or:
+
+```bash
+femrep result.f06 --out отчёт.docx --profile gost_ru
+```
+
+The profile uses extra title-page fields (организация, УДК, город, год,
+руководители) editable in the template. The English default profile is
+unaffected.
+
 Both renderers (PDF via reportlab, DOCX via python-docx) emit the same content:
 cover, summary, readiness, model, meshing, composites/CFRP, solve +
 convergence, results (contour + time-history figures), mesh-independence (GCI),

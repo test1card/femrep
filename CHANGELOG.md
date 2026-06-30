@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.4.0
+
+**ГОСТ 7.32-2017 — полностью русскоязычный отчёт (DOCX).**
+
+- New `gost_ru` report profile: a dedicated Russian DOCX renderer
+  (`report_gost_docx`) producing the ГОСТ 7.32-2017 structure — титульный лист,
+  реферат (с автоподсчётом объёма полем NUMPAGES), содержание (поле TOC),
+  введение, нумерованная основная часть, заключение. Formatting per the
+  standard: Times New Roman 14, полуторный интервал, поля 30/15/20/20 мм,
+  абзацный отступ 1.25 см, выравнивание по ширине, сквозная нумерация страниц.
+- `locale_ru` Russian string layer: every label, verdict, and the auto-generated
+  реферат/введение/заключение prose. A test enforces zero English label words.
+- Template gains `profile` + ГОСТ титульный-лист fields (организация, УДК, город,
+  год, руководители, вид отчёта). Select it in the GUI (Профиль) or CLI
+  (`--profile gost_ru`); the English PDF/DOCX default is untouched.
+
 ## v0.3.0
 
 **Report templates — build customized reports in the GUI.**

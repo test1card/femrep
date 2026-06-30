@@ -5,14 +5,14 @@ fully Russian (zero English label words). Separate renderer → no regression to
 v0.3.0 English path. Test venv: `./.test-venv/bin/python -m pytest tests/ -q`.
 
 ## Checklist
-- [ ] 1. Spec + tracker committed
-- [ ] 2. `locale_ru.py` — section titles, table headers, verdict/status/analysis/QoI/units maps, GOST structural + титул labels, claim/введение/заключение/реферат phrasing; + tests
-- [ ] 3. `report_gost_docx.py` — титульный лист, реферат, содержание, введение, основная часть (numbered RU sections), заключение; GOST formatting (Times New Roman 14, 1.5, поля 30/15/20/20 mm, абзац 1.25, justify, page numbers, титул unnumbered); build_gost_doc seam; + tests
-- [ ] 4. Schema: template `profile` ("default"|"gost_ru") + GOST title-page branding fields; validate defaults; tests
-- [ ] 5. Wiring: run_report routes profile=gost_ru → report_gost_docx (force .docx); CLI `--profile`; tests
-- [ ] 6. GUI: профиль selector + GOST title-page fields in TemplateDialog; offscreen test
-- [ ] 7. Zero-English-labels test passes; GOST formatting test; full suite green; build wheel; bump 0.4.0
-- [ ] 8. README + CHANGELOG; re-bundle installer; release v0.4.0
+- [x] 1. Spec + tracker committed
+- [x] 2. `locale_ru.py` + 5 tests
+- [x] 3. `report_gost_docx.py` + 4 tests (structure, formatting, zero-English, section selection)
+- [x] 4. Schema: `profile` + GOST title-page fields; validate defaults; tests
+- [x] 5. Wiring: run_report → report_gost_docx (force .docx); CLI `--profile`; batch; tests
+- [x] 6. GUI: Профиль selector + GOST fields (auto) + _render_to routing; 2 offscreen tests
+- [x] 7. Zero-English + GOST formatting tests green; full suite 51 passed; bumped 0.4.0
+- [ ] 8. README + CHANGELOG done; build wheel; re-bundle installer; release v0.4.0
 - [ ] 9. Polish; verify Cyrillic in generated docx; final verify
 
 ## Contract / decisions
