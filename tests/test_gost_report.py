@@ -27,7 +27,7 @@ def _fixture():
         "mesh": {"nodes": 10, "elements": 4, "element_types": {"tet": 4}},
         "convergence": {"converged": True, "substeps": 1, "note": "ок"},
     }
-    manifest = {"analysis_type": "thermal", "units": "SI", "solver": "Nastran",
+    manifest = {"analysis_type": "thermal", "units": "SI (m, kg, s, K, N, Pa, W)", "solver": "Nastran",
                 "solver_version": "0.1", "platform": "darwin", "command_line": "femrep ...",
                 "deck_path": None, "superseded_by": None}
     checks = {"claim": "...", "gci": None,
@@ -69,6 +69,9 @@ def test_gost_has_no_english_label_words():
     text = _all_text(doc)
     leaked = [w for w in FORBIDDEN if re.search(rf"\b{re.escape(w)}\b", text, re.IGNORECASE)]
     assert leaked == [], f"English label words leaked into the GOST report: {leaked}"
+    # units must be transliterated to Russian, not left as 'SI (m, kg, ...)'
+    assert "kg" not in text and "SI (" not in text
+    assert "СИ (м" in text
 
 
 def test_gost_formatting_font_spacing_margins():

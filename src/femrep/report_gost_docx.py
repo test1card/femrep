@@ -134,7 +134,9 @@ def _titul(doc, cfg, manifest, meta):
     for _ in range(3):
         _p(doc, "", indent=False)
     _p(doc, L.TITLE["report_kind"], align=WD_ALIGN_PARAGRAPH.CENTER, bold=True, indent=False)
-    title = b.get("title") or "Отчёт о конечно-элементном расчёте"
+    title = b.get("title")
+    if not title or title == "FEM Analysis Report":   # English config default → Russian
+        title = "Отчёт о конечно-элементном расчёте"
     _p(doc, title, align=WD_ALIGN_PARAGRAPH.CENTER, bold=True, indent=False)
     kind = (L.TITLE["report_type_interim"] if (b.get("report_type") == "interim")
             else L.TITLE["report_type_final"])
@@ -174,12 +176,14 @@ def _g_model(doc, n, ctx):
     r, m = ctx["results"], ctx["manifest"]
     et = ", ".join(f"{k}: {v}" for k, v in r["mesh"].get("element_types", {}).items())
     n_elem = sum(r["mesh"].get("element_types", {}).values()) or r["mesh"].get("elements", 0)
+    n_elem = n_elem if isinstance(n_elem, int) else 0
     _table(doc, ctx["nt"](), "Параметры расчётной модели",
            [L.HDR["param"], L.HDR["value"]], [
-        ["Узлы / элементы", f"{r['mesh'].get('nodes',0)} / {n_elem}"],
+        ["Узлы / элементы", f"{r['mesh'].get('nodes',0)} / {n_elem}"
+                            + ("" if n_elem else " (в .f06 отсутствуют — только узлы)")],
         ["Типы элементов", et or "—"],
         ["Тип анализа", L.analysis_ru(m.get("analysis_type", ""))],
-        ["Единицы измерения", L.units_ru(m.get("units", "")) or "СИ"],
+        ["Единицы измерения", L.units_full_ru(m.get("units", "")) or "СИ"],
         ["Файл результатов", Path(r.get("result_file", "")).name],
     ])
 
@@ -192,9 +196,10 @@ def _g_meshing(doc, n, ctx):
 
 
 def _g_composites(doc, n, ctx):
-    _p(doc, "Раздел приводит контрольный пример слоистого композита для демонстрации "
-            "методики оценки (матрица жёсткости, симметрия укладки, критерий первого "
-            "разрушения слоя). Реальные данные подключаются при их наличии.")
+    _p(doc, "Слоистый композит представлен контрольным примером укладки [0/90/0] "
+            "(T300/5208): матрица жёсткости ABD, симметрия укладки (B ≈ 0), критерий "
+            "первого разрушения слоя по Цаю–Ву. Данные реальной укладки подключаются "
+            "из результатов ACP при их наличии.")
     _table(doc, ctx["nt"](), "Контрольный пример композита",
            [L.HDR["param"], L.HDR["value"]],
            [["Укладка", "[0/90/0]"], ["Симметрия", "B ≈ 0"]])
@@ -216,8 +221,8 @@ def _g_solve(doc, n, ctx):
 
 def _g_results(doc, n, ctx):
     figures = ctx["figures"]
-    _p(doc, "Поля контролируемой величины и история нагружения приведены на рисунках "
-            "ниже (при наличии геометрии).")
+    _p(doc, "Поле контролируемой величины и история нагружения показаны на рисунках "
+            "ниже; при отсутствии геометрии в файле результатов поле не строится.")
     for key in _FIG_KEYS["results"]:
         fp = figures.get(key)
         if fp and Path(fp).exists():
@@ -238,15 +243,16 @@ def _g_gci(doc, n, ctx):
             ["Вывод", L.verdict_ru(gci.get('verdict_level', ''))],
         ])
     else:
-        _p(doc, "Исследование сеточной сходимости не предоставлено — результат "
-                "получен на одной сетке (см. критерии качества).")
+        _p(doc, "Исследование сеточной сходимости не проводилось: результат получен "
+                "на одной сетке, поэтому дискретизационная погрешность количественно "
+                "не ограничена.")
 
 
 def _g_governance(doc, n, ctx):
     checks = ctx["checks"]
     readiness = checks.get("readiness") or {}
-    _p(doc, "Критерии качества — каждый вывод вычислен, а не назначен для "
-            "«прохождения».")
+    _p(doc, "Критерии качества вычислены по данным расчёта; каждый вывод получен из "
+            "результата, а не назначен для прохождения.")
     _table(doc, ctx["nt"](), "Готовность свидетельств",
            [L.HDR["evidence"], L.HDR["state"], L.HDR["note"]],
            [[L.READINESS_NAMES.get(i["key"], i["key"]), L.status_ru(i["status"]),
