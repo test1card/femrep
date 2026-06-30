@@ -28,8 +28,11 @@ TEMPLATES = {
 }
 
 
-def load_config(path: Path, template: str | None = None) -> dict:
-    """Flat key:value config reader plus tiny named template overlay."""
+def load_config(path: Path, template: str | None = None,
+                template_file: Path | None = None) -> dict:
+    """Flat key:value config reader plus template overlays. A built-in named
+    `template` overlays first; a saved `template_file` (custom GUI template) is
+    overlaid last and wins — bringing its branding and section layout."""
     cfg = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip() or line.lstrip().startswith("#"):
@@ -53,6 +56,9 @@ def load_config(path: Path, template: str | None = None) -> dict:
     if template:
         cfg.update(TEMPLATES.get(template, {}))
         cfg["template"] = template
+    if template_file:
+        from . import templates as _templates
+        cfg.update(_templates.to_config(_templates.load_path(Path(template_file))))
     return cfg
 
 
@@ -93,7 +99,8 @@ def _detect_gci(result_file: Path) -> Path | None:
 def run_report(result_file: Path, *, out: Path, log: Path | None = None,
                mode: str = "ENGINEERING", gci_path: Path | None = None,
                deck: Path | None = None, config_path: Path | None = None,
-               template: str | None = None, no_figures: bool = False,
+               template: str | None = None, template_file: Path | None = None,
+               no_figures: bool = False,
                make_html: bool = False, make_package: bool = False,
                project: Path | None = None, run_name: str | None = None,
                supersedes: str | None = None, qoi: str | None = None) -> dict:
@@ -142,7 +149,7 @@ def run_report(result_file: Path, *, out: Path, log: Path | None = None,
         except Exception as e:
             print(f"[femrep] figures skipped: {e}", flush=True)
 
-    cfg = load_config(config_path, template)
+    cfg = load_config(config_path, template, template_file)
     meta = {"generated": datetime.now().isoformat(timespec="seconds"),
             "config_path": str(config_path)}
     if out.suffix.lower() == ".docx":
@@ -321,6 +328,7 @@ def run_batch(batch_path: Path) -> list[dict]:
             gci_path=Path(run["gci"]) if run.get("gci") else None,
             config_path=Path(run["config"]) if run.get("config") else None,
             template=run.get("template"),
+            template_file=Path(run["template_file"]) if run.get("template_file") else None,
             no_figures=bool(run.get("no_figures", False)),
             make_html=bool(run.get("html", True)),
             make_package=bool(run.get("package", True)),

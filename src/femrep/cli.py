@@ -46,6 +46,8 @@ def main() -> int:
                     help="output path; extension decides pdf/docx")
     ap.add_argument("--config", type=Path, default=Path(__file__).parent / "config.yaml")
     ap.add_argument("--template", choices=sorted(workflow.TEMPLATES), default=None)
+    ap.add_argument("--template-file", type=Path, default=None,
+                    help="a saved .json report template (branding + section layout)")
     ap.add_argument("--project", type=Path, default=None,
                     help="project folder created by femrep init")
     ap.add_argument("--run-name", default=None,
@@ -67,6 +69,7 @@ def main() -> int:
             deck=args.deck,
             config_path=args.config,
             template=args.template,
+            template_file=args.template_file,
             no_figures=args.no_figures,
             make_html=args.html,
             make_package=args.package,
