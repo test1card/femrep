@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.5.6
+
+**Whole-class hardening for legacy Ansys (Codex + GLM 5.2 dual review).**
+
+- **Critical:** `setuptools` must be pinned `<81` — setuptools ≥81 removed
+  `pkg_resources`, so v0.5.5's bare `setuptools` still left it missing. Both
+  installers now pin `setuptools<81`.
+- **Multi-Ansys machines:** DPF 0.9 picks the newest installed Ansys (whose v8.0
+  server a 0.9 client can't reach). `ansys_dpf` now starts an explicit LegacyGrpc
+  server against the legacy install (`AWP_ROOT212/221/211`, or `ANSYS_DPF_PATH`)
+  when a legacy Ansys is present; modern installs are untouched (fail-safe).
+- `femrep diagnose` reports `ANSYS_DPF_PATH` and forces LegacyGrpc in its check.
+- Installer warns that Ansys 2021 R1 (DPF 1.0) is a different bucket from 2021 R2.
+- Verified non-issues (left as-is): protobuf/numpy floats (dpf 0.9 is pure-Python;
+  modern stubs work), the inert `DPF_GRPC_MODE` env vars, and the DPF API surface.
+
 ## v0.5.5
 
 **Fix: `No module named pkg_resources` on the legacy Ansys path.**

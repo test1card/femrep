@@ -51,6 +51,7 @@ def main(argv=None) -> int:
             print(f"Ansys install  : {k} -> {os.environ[k]}")
     else:
         print("Ansys install  : no AWP_ROOT* found — Ansys not detected for this account")
+    print(f"ANSYS_DPF_PATH : {os.environ.get('ANSYS_DPF_PATH', '(unset)')}")
     if any(k in ("AWP_ROOT211", "AWP_ROOT212", "AWP_ROOT221") for k in roots):
         print("Expected DPF   : v4.0 / LegacyGrpc (Ansys 2021-2022R1) —"
               " needs ansys-dpf-core 0.3-0.9 on Python 3.10/3.11")
@@ -72,11 +73,24 @@ def main(argv=None) -> int:
         return 1
 
     print("Starting a local DPF server (the real Ansys<->DPF check) ...")
+    # for a legacy Ansys, force LegacyGrpc against that install (multi-version
+    # machines otherwise pick the newest Ansys, which a 0.9 client can't talk to)
+    legacy_root = next((os.environ[v] for v in
+                        ("AWP_ROOT212", "AWP_ROOT221", "AWP_ROOT211")
+                        if os.environ.get(v)), None)
+    kwargs = {}
+    if legacy_root:
+        kwargs["ansys_path"] = os.environ.get("ANSYS_DPF_PATH") or legacy_root
+        try:
+            kwargs["config"] = dpf.AvailableServerConfigs.LegacyGrpcServer
+            print("  (forcing LegacyGrpc against", kwargs["ansys_path"], ")")
+        except Exception:
+            pass
     try:
         try:
-            srv = dpf.start_local_server(timeout=60)
+            srv = dpf.start_local_server(timeout=60, **kwargs)
         except TypeError:
-            srv = dpf.start_local_server()
+            srv = dpf.start_local_server(**kwargs)
         print("  DPF server STARTED")
         for attr in ("version", "ansys_path", "config"):
             try:

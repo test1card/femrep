@@ -1,16 +1,16 @@
 <claude-mem-context>
 # Memory Context
 
-# claude-mem status
+# [femrep] recent context, 2026-06-30 5:07pm GMT+3
 
-This project has no memory yet. The current session will seed it; subsequent sessions will receive auto-injected context for relevant past work.
+Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
+Format: ID TIME TYPE TITLE
+Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Memory injection starts on your second session in a project.
+Stats: 1 obs (458t read) | 19,369t work | 98% savings
 
-`/learn-codebase` is available if the user wants to front-load the entire repo into memory in a single pass (~5 minutes on a typical repo, optional). Otherwise memory builds passively as work happens.
+### Jun 30, 2026
+4926 3:12p 🔵 Module import fails in restricted temp environments due to matplotlib initialization chain
 
-Live activity: http://localhost:37701
-How it works: `/how-it-works`
-
-This message disappears once the first observation lands.
+Access 19k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>

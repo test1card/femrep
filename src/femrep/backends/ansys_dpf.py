@@ -33,6 +33,32 @@ ELEMENT_LABELS = {
     4: "quad", 6: "tri", 11: "beam", 12: "shell",
 }
 
+_LEGACY_ROOTS = ("AWP_ROOT212", "AWP_ROOT221", "AWP_ROOT211")  # 2021R2, 2022R1, 2021R1
+_server_done = False
+
+
+def _ensure_dpf_server() -> None:
+    """On Ansys 2021R2/2022R1 (DPF server v4.0), force a LegacyGrpc server against
+    the legacy Ansys install. On a machine with several Ansys versions, DPF 0.9
+    otherwise picks the NEWEST install, whose server a 0.9 client cannot talk to.
+    Fail-safe: if no legacy Ansys is present, or anything errors, do nothing and
+    let dpf.Model auto-start as before — so modern Ansys is untouched."""
+    global _server_done
+    if _server_done:
+        return
+    _server_done = True
+    legacy_root = next((os.environ[v] for v in _LEGACY_ROOTS if os.environ.get(v)), None)
+    if not legacy_root:
+        return  # modern Ansys / no legacy install — keep DPF's default behavior
+    try:
+        if getattr(dpf, "SERVER", None) is not None:
+            return  # a server is already running
+        ansys_path = os.environ.get("ANSYS_DPF_PATH") or legacy_root
+        dpf.start_local_server(ansys_path=ansys_path,
+                               config=dpf.AvailableServerConfigs.LegacyGrpcServer)
+    except Exception:
+        pass  # fall back to dpf.Model auto-start
+
 
 def element_histogram(meshed_region) -> dict:
     try:
@@ -180,6 +206,7 @@ def _qoi_stats(model) -> tuple[float, float, float]:
 def extract(result_file: Path, solve_log: Path | None = None,
             qoi: str | None = None) -> dict:
     """Read one Ansys result file -> results dict. Detects + unfolds transient sequences."""
+    _ensure_dpf_server()
     sequence = _sequence_files(result_file)
     is_transient = len(sequence) > 1
     # representative model for mesh/QoI/metadata: the last set (the consolidated file

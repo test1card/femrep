@@ -21,6 +21,16 @@ set "FEMREP_HOME=%LOCALAPPDATA%\femrep"
 set "VENV=%FEMREP_HOME%\venv"
 set "UVDIR=%FEMREP_HOME%\uv"
 
+REM This installer targets Ansys 2021 R2 (DPF 2.0) and 2022 R1 (DPF 3.0), both
+REM served by ansys-dpf-core 0.9. Ansys 2021 R1 (DPF 1.0) is a DIFFERENT bucket
+REM (needs ansys-dpf-core 0.2.x) and is NOT supported by this script.
+if defined AWP_ROOT211 if not defined AWP_ROOT212 if not defined AWP_ROOT221 (
+    echo  NOTE: only Ansys 2021 R1 detected. This installer targets 2021 R2 / 2022 R1.
+    echo        2021 R1 uses an older DPF that 0.9 may not support - contact support
+    echo        if reading .rst fails. Continuing anyway...
+    echo.
+)
+
 REM --- 1. Get a Python 3.11/3.10 environment --------------------------------
 echo  [1/4] Preparing a Python 3.11 environment for femrep...
 if exist "%VENV%" rmdir /s /q "%VENV%"
@@ -57,12 +67,13 @@ echo  [2/4] Installing femrep and ansys-dpf-core 0.9 (this may take minutes)...
 set "WHEEL="
 for %%f in ("%~dp0femrep-*.whl") do set "WHEEL=%%f"
 "%VENV%\Scripts\python.exe" -m pip install --upgrade pip >nul 2>&1
-REM setuptools provides pkg_resources, which ansys-dpf-core 0.9 imports but does
-REM not declare; modern (uv / 3.12+) venvs do not include it by default.
+REM ansys-dpf-core 0.9 imports pkg_resources but doesn't declare it. setuptools
+REM provides pkg_resources, BUT setuptools >= 81 removed it — so it must be pinned
+REM below 81 (modern uv / 3.12+ venvs omit setuptools entirely).
 if defined WHEEL (
-    "%VENV%\Scripts\python.exe" -m pip install "%WHEEL%[gui]" "ansys-dpf-core==0.9.0" setuptools
+    "%VENV%\Scripts\python.exe" -m pip install "%WHEEL%[gui]" "ansys-dpf-core==0.9.0" "setuptools<81"
 ) else (
-    "%VENV%\Scripts\python.exe" -m pip install "femrep[gui]" "ansys-dpf-core==0.9.0" setuptools
+    "%VENV%\Scripts\python.exe" -m pip install "femrep[gui]" "ansys-dpf-core==0.9.0" "setuptools<81"
 )
 if errorlevel 1 (
     echo.
