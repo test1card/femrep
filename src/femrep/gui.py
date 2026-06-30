@@ -248,10 +248,13 @@ class FemrepWindow(QMainWindow):
         right.addSpacing(6)
         right.addWidget(self._section("Проверки femis (Gates)"))
         self.gates_host = QWidget()
+        self.gates_host.setStyleSheet("background: transparent;")
         self.gates_lay = QVBoxLayout(self.gates_host)
-        self.gates_lay.setContentsMargins(0, 0, 0, 0); self.gates_lay.setSpacing(6)
+        self.gates_lay.setContentsMargins(0, 2, 14, 2); self.gates_lay.setSpacing(7)
         gscroll = QScrollArea(); gscroll.setWidgetResizable(True); gscroll.setWidget(self.gates_host)
         gscroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        gscroll.setFrameShape(QFrame.NoFrame)
+        gscroll.viewport().setStyleSheet("background: transparent;")
         right.addWidget(gscroll, 1)
         right.addWidget(self._section("Утверждение femis (Claim)"))
         self.lbl_claim = QLabel("—"); self.lbl_claim.setWordWrap(True); self.lbl_claim.setObjectName("sub")
@@ -487,17 +490,15 @@ class FemrepWindow(QMainWindow):
             if w:
                 w.deleteLater()
         for g in checks["gates"]:
-            row = QWidget(); rl = QHBoxLayout(row); rl.setContentsMargins(0, 0, 0, 0); rl.setSpacing(8)
+            row = QWidget(); rl = QHBoxLayout(row); rl.setContentsMargins(0, 0, 0, 0); rl.setSpacing(10)
+            name = QLabel(locale_ru.GATE_NAMES.get(g["gate"], g["gate"]))
+            name.setWordWrap(True)
             badge = QLabel(_VERDICT_RU.get(g["verdict"], g["verdict"]))
             badge.setAlignment(Qt.AlignCenter)
             _set_prop(badge, "badge", _BADGE.get(g["verdict"], "warn"))
-            # fixed-width cell aligns the name column; the pill sizes to its text
-            cell = QWidget(); cell.setFixedWidth(150)
-            cl = QHBoxLayout(cell); cl.setContentsMargins(0, 0, 0, 0); cl.setSpacing(0)
-            cl.addWidget(badge); cl.addStretch()
-            name = QLabel(locale_ru.GATE_NAMES.get(g["gate"], g["gate"]))
-            name.setWordWrap(True)
-            rl.addWidget(cell); rl.addWidget(name, 1)
+            # name takes the full width; the compact pill is right-aligned to the first line
+            rl.addWidget(name, 1)
+            rl.addWidget(badge, 0, Qt.AlignTop)
             note = g.get("note")
             if note:
                 row.setToolTip(note)
