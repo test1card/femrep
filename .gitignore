@@ -37,3 +37,11 @@ dist/
 
 # OMC orchestration state (not part of femrep)
 .omc/
+
+# installed agent skills (not part of femrep)
+.agents/
+skills-lock.json
+
+# GUI design screenshots (local review only)
+design-screens/
+.codex/
