@@ -61,6 +61,9 @@ QPushButton#ghost:hover {{ background: {SURFACE_ALT}; }}
 QPushButton#opt {{ background: {SURFACE}; color: {INK}; border: 1px solid {BORDER};
                    border-radius: 7px; padding: 8px 14px; font-size: 12px; }}
 QPushButton#opt:hover {{ border: 1px solid #C9C8C2; }}
+QPushButton#iconbtn {{ background: {SURFACE}; color: {MUTED}; border: 1px solid {BORDER};
+                       border-radius: 6px; padding: 0; font-size: 15px; }}
+QPushButton#iconbtn:hover {{ border: 1px solid #C9C8C2; color: {INK}; }}
 
 /* status badges (set property badge = ok|warn|bad) */
 QLabel[badge="ok"] {{ background: {OK[0]}; color: {OK[1]}; border-radius: 9px; padding: 4px 10px;
@@ -71,6 +74,13 @@ QLabel[badge="bad"] {{ background: {BAD[0]}; color: {BAD[1]}; border-radius: 9px
                        font-size: 11px; font-weight: 600; }}
 
 QScrollArea {{ border: none; background: transparent; }}
+/* minimal, intentional scrollbars (no arrows, transparent track) */
+QScrollBar:vertical {{ background: transparent; width: 8px; margin: 2px 0 2px 0; }}
+QScrollBar::handle:vertical {{ background: #D9D8D3; border-radius: 4px; min-height: 28px; }}
+QScrollBar::handle:vertical:hover {{ background: #C9C8C2; }}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; background: none; }}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
+QScrollBar:horizontal {{ height: 0; background: transparent; }}
 QListWidget {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 8px; padding: 4px; }}
 QListWidget::item {{ padding: 6px 8px; border-radius: 6px; }}
 QListWidget::item:selected {{ background: #EFEEE9; color: {INK}; }}

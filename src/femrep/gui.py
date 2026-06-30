@@ -41,6 +41,12 @@ _BADGE = {"pass": "ok", "not_done": "warn", "fail": "bad"}
 _VERDICT_RU = {"pass": "соответствует", "not_done": "не выполнено",
                "fail": "не соответствует"}
 
+# Universal-attach role -> Russian label + pastel badge property.
+_ROLE_RU = {"result": "результат", "log": "журнал", "gci": "сетки GCI",
+            "deck": "расчётная модель", "unknown": "не распознан"}
+_ROLE_BADGE = {"result": "ok", "log": "warn", "gci": "warn",
+               "deck": "warn", "unknown": "bad"}
+
 STEPS = [("Результат", "Result"), ("Проверка", "Check"),
          ("Шаблон", "Template"), ("Экспорт", "Export")]
 
@@ -101,6 +107,36 @@ def _set_prop(w: QWidget, name: str, value) -> None:
     w.style().polish(w)
 
 
+class DropZone(QLabel):
+    """A clickable, drag-and-drop file attach zone. Emits dropped(list[str])."""
+    dropped = Signal(list)
+    clicked = Signal()
+
+    def __init__(self, text: str = "", parent=None):
+        super().__init__(text, parent)
+        self.setObjectName("drop")
+        self.setAlignment(Qt.AlignCenter)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setAcceptDrops(True)
+
+    def mousePressEvent(self, event):  # noqa: N802 (Qt override)
+        self.clicked.emit()
+
+    def dragEnterEvent(self, event):  # noqa: N802
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):  # noqa: N802
+        paths = [u.toLocalFile() for u in event.mimeData().urls() if u.isLocalFile()]
+        if paths:
+            self.dropped.emit(paths)
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+
 class FemrepWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -110,6 +146,7 @@ class FemrepWindow(QMainWindow):
         self.last_payload: dict | None = None
         self.report_mode = "SIGNOFF"
         self.project: Path | None = None
+        self.attachments: dict[str, Path] = {}
         self._step = 0
         self._build_ui()
         self._set_step(0)
@@ -183,33 +220,26 @@ class FemrepWindow(QMainWindow):
     # --- step 1: Result -------------------------------------------------
     def _build_step1(self) -> QWidget:
         card, v = self._card("Результат", "Result",
-                             "Выберите файл результатов решателя. Лог, GCI и расчётную "
-                             "колоду можно добавить по желанию.")
+                             "Перетащите сюда любые файлы — результат, журнал, сетки GCI "
+                             "или расчётную модель. Роль определяется автоматически.")
         v.addSpacing(6)
-        v.addWidget(self._section("Файл результатов (Result)"))
-        self.drop = QLabel("Перетащите или нажмите, чтобы выбрать  ·  .rst / .rth / .f06 / .op2")
-        self.drop.setObjectName("drop"); self.drop.setAlignment(Qt.AlignCenter)
-        self.drop.setMinimumHeight(92)
-        self.drop.setCursor(Qt.PointingHandCursor)
-        self.drop.mousePressEvent = lambda e: self._pick_result()
+        v.addWidget(self._section("Вложения (Attach)"))
+        self.drop = DropZone(
+            "Перетащите файлы или нажмите, чтобы выбрать\n"
+            "результат · журнал · GCI · расчётная модель")
+        self.drop.setMinimumHeight(108)
+        self.drop.clicked.connect(self._pick_attach)
+        self.drop.dropped.connect(self._attach_paths)
         v.addWidget(self.drop)
-        self.lbl_result = QLabel("файл не выбран"); self.lbl_result.setObjectName("sub")
-        v.addWidget(self.lbl_result)
 
-        v.addSpacing(8)
-        v.addWidget(self._section("Опционально (Optional)"))
-        opts = QHBoxLayout(); opts.setSpacing(10)
-        self.btn_log = QPushButton("Лог (.mntr/.out)…"); self.btn_log.setObjectName("opt")
-        self.btn_log.clicked.connect(self._pick_log)
-        self.btn_gci = QPushButton("GCI (.json)…"); self.btn_gci.setObjectName("opt")
-        self.btn_gci.clicked.connect(self._pick_gci)
-        self.btn_deck = QPushButton("Колода / Deck…"); self.btn_deck.setObjectName("opt")
-        self.btn_deck.clicked.connect(self._pick_deck)
-        opts.addWidget(self.btn_log); opts.addWidget(self.btn_gci); opts.addWidget(self.btn_deck)
-        opts.addStretch()
-        v.addLayout(opts)
-        self.lbl_opts = QLabel("лог — ·  GCI — ·  колода —"); self.lbl_opts.setObjectName("sub")
-        v.addWidget(self.lbl_opts)
+        # host for the removable attachment rows
+        self.attach_host = QWidget(); self.attach_host.setStyleSheet("background: transparent;")
+        self.attach_lay = QVBoxLayout(self.attach_host)
+        self.attach_lay.setContentsMargins(0, 2, 14, 2); self.attach_lay.setSpacing(7)
+        v.addWidget(self.attach_host)
+        self.lbl_attach_hint = QLabel("файл результата обязателен (.rst / .rth / .f06 / .op2)")
+        self.lbl_attach_hint.setObjectName("sub")
+        v.addWidget(self.lbl_attach_hint)
 
         self.chk_figs = QRadioButton("С иллюстрациями (with figures)"); self.chk_figs.setChecked(True)
         v.addWidget(self.chk_figs)
@@ -223,6 +253,7 @@ class FemrepWindow(QMainWindow):
         self.btn_run = QPushButton("Извлечь и проверить →"); self.btn_run.setObjectName("cta")
         self.btn_run.clicked.connect(self._run)
         v.addLayout(self._footer(lambda: None, self.btn_run, back_visible=False))
+        self._refresh_attachments()
         return card
 
     # --- step 2: Check --------------------------------------------------
@@ -247,15 +278,12 @@ class FemrepWindow(QMainWindow):
         right.addWidget(self.lbl_qoi)
         right.addSpacing(6)
         right.addWidget(self._section("Проверки femis (Gates)"))
+        # gates fit directly in the column (6–9 of them) — no scroll area needed
         self.gates_host = QWidget()
         self.gates_host.setStyleSheet("background: transparent;")
         self.gates_lay = QVBoxLayout(self.gates_host)
         self.gates_lay.setContentsMargins(0, 2, 14, 2); self.gates_lay.setSpacing(7)
-        gscroll = QScrollArea(); gscroll.setWidgetResizable(True); gscroll.setWidget(self.gates_host)
-        gscroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        gscroll.setFrameShape(QFrame.NoFrame)
-        gscroll.viewport().setStyleSheet("background: transparent;")
-        right.addWidget(gscroll, 1)
+        right.addWidget(self.gates_host, 1)
         right.addWidget(self._section("Утверждение femis (Claim)"))
         self.lbl_claim = QLabel("—"); self.lbl_claim.setWordWrap(True); self.lbl_claim.setObjectName("sub")
         right.addWidget(self.lbl_claim)
@@ -275,9 +303,8 @@ class FemrepWindow(QMainWindow):
     # --- step 3: Template ----------------------------------------------
     def _build_step3(self) -> QWidget:
         card, v = self._card("Шаблон", "Template",
-                             "Выберите проект и шаблон оформления. Шаблоны хранят брендинг, "
-                             "набор разделов и профиль (например, ГОСТ).")
-        v.addSpacing(6)
+                             "Проект и шаблон задают брендинг, разделы и профиль (например, ГОСТ).")
+        v.addSpacing(4)
         v.addWidget(self._section("Проект (Project)"))
         pr = QHBoxLayout(); pr.setSpacing(10)
         self.btn_project = QPushButton("Открыть / создать проект…"); self.btn_project.setObjectName("opt")
@@ -292,6 +319,7 @@ class FemrepWindow(QMainWindow):
         v.addWidget(self._section("Шаблон оформления (Template)"))
         self.cmb_template = QComboBox()
         self.cmb_template.addItem("Built-in default")
+        self.cmb_template.currentIndexChanged.connect(lambda _i: self._refresh_content_panel())
         v.addWidget(self.cmb_template)
 
         self.btn_manage = QPushButton("Управление шаблонами…"); self.btn_manage.setObjectName("opt")
@@ -299,7 +327,17 @@ class FemrepWindow(QMainWindow):
         mr = QHBoxLayout(); mr.addWidget(self.btn_manage); mr.addStretch()
         v.addLayout(mr)
 
-        v.addStretch()
+        v.addSpacing(4)
+        v.addWidget(self._section("Содержание отчёта (что попадёт в отчёт)"))
+        self.content_host = QWidget(); self.content_host.setStyleSheet("background: transparent;")
+        self.content_lay = QVBoxLayout(self.content_host)
+        self.content_lay.setContentsMargins(0, 2, 14, 2); self.content_lay.setSpacing(3)
+        cscroll = QScrollArea(); cscroll.setWidgetResizable(True); cscroll.setWidget(self.content_host)
+        cscroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        cscroll.setFrameShape(QFrame.NoFrame)
+        cscroll.viewport().setStyleSheet("background: transparent;")
+        v.addWidget(cscroll, 1)
+
         nxt = QPushButton("Далее →"); nxt.setObjectName("cta")
         nxt.clicked.connect(self._goto_export)
         v.addLayout(self._footer(lambda: self._set_step(1), nxt))
@@ -313,6 +351,12 @@ class FemrepWindow(QMainWindow):
         v.addWidget(self._section("Сводка (Summary)"))
         self.lbl_export = QLabel("—"); self.lbl_export.setWordWrap(True)
         v.addWidget(self.lbl_export)
+
+        v.addSpacing(8)
+        v.addWidget(self._section("Разделы отчёта (Sections)"))
+        self.lbl_export_sections = QLabel("—"); self.lbl_export_sections.setObjectName("sub")
+        self.lbl_export_sections.setWordWrap(True)
+        v.addWidget(self.lbl_export_sections)
 
         v.addSpacing(8)
         v.addWidget(self._section("Формат (Format)"))
@@ -340,42 +384,57 @@ class FemrepWindow(QMainWindow):
             _set_prop(num, "active", active)
             _set_prop(num, "done", done and not active)
             _set_prop(step, "active", active)
+        if idx == 2:
+            self._refresh_content_panel()
         if idx == 3:
             self._refresh_export_summary()
+            self._refresh_export_sections()
 
-    # ------------------------------------------------------------- pickers
-    def _pick_result(self):
-        p, _ = QFileDialog.getOpenFileName(self, "Файл результатов / Result file", "",
-                                           "Results (*.rst *.rth *.f06 *.op2);;All (*.*)")
-        if p:
-            self.result_file = Path(p)
-            self.drop.setText(Path(p).name)
-            self.lbl_result.setText(p)
+    # ------------------------------------------------------------- attachments
+    def _pick_attach(self):
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Выберите файлы / Attach files", "",
+            "Все файлы / All (*.*)")
+        if paths:
+            self._attach_paths(paths)
 
-    def _pick_log(self):
-        p, _ = QFileDialog.getOpenFileName(self, "Лог решателя / Solve log", "",
-                                           "Logs (*.mntr *.out *.log *.f06);;All (*.*)")
-        if p:
-            self.log_file = Path(p); self._refresh_opts()
+    def _attach_paths(self, paths: list[str]):
+        """Classify each path and store it under its role (latest wins per role)."""
+        for p in paths:
+            role = workflow.classify_input(p)
+            self.attachments[role] = Path(p)
+        self._refresh_attachments()
 
-    def _pick_gci(self):
-        p, _ = QFileDialog.getOpenFileName(self, "GCI runs", "", "JSON (*.json)")
-        if p:
-            self.gci_file = Path(p); self._refresh_opts()
+    def _remove_role(self, role: str):
+        self.attachments.pop(role, None)
+        self._refresh_attachments()
 
-    def _pick_deck(self):
-        p, _ = QFileDialog.getOpenFileName(self, "Расчётная колода / Deck", "", "All (*.*)")
-        if p:
-            self.deck_file = Path(p); self._refresh_opts()
+    def _refresh_attachments(self):
+        """Rebuild the removable attachment rows and gate the CTA on a result."""
+        while self.attach_lay.count():
+            item = self.attach_lay.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+        for role, path in self.attachments.items():
+            row = QWidget(); rl = QHBoxLayout(row)
+            rl.setContentsMargins(0, 0, 0, 0); rl.setSpacing(10)
+            rm = QPushButton("×"); rm.setObjectName("iconbtn"); rm.setFixedSize(24, 24)
+            rm.setToolTip("Убрать")
+            rm.clicked.connect(lambda _=False, r=role: self._remove_role(r))
+            name = QLabel(path.name); name.setWordWrap(True)
+            badge = QLabel(_ROLE_RU.get(role, role)); badge.setAlignment(Qt.AlignCenter)
+            _set_prop(badge, "badge", _ROLE_BADGE.get(role, "warn"))
+            rl.addWidget(rm, 0, Qt.AlignTop)
+            rl.addWidget(name, 1)
+            rl.addWidget(badge, 0, Qt.AlignTop)
+            self.attach_lay.addWidget(row)
 
-    def _refresh_opts(self):
-        log = getattr(self, "log_file", None)
-        gci = getattr(self, "gci_file", None)
-        deck = getattr(self, "deck_file", None)
-        self.lbl_opts.setText(
-            f"лог {log.name if log else '—'} ·  "
-            f"GCI {gci.name if gci else '—'} ·  "
-            f"колода {deck.name if deck else '—'}")
+        has_result = "result" in self.attachments
+        self.btn_run.setEnabled(has_result)
+        self.lbl_attach_hint.setText(
+            "готово к извлечению" if has_result
+            else "файл результата обязателен (.rst / .rth / .f06 / .op2)")
 
     # ------------------------------------------------------------- project / templates
     def _pick_project(self):
@@ -421,19 +480,64 @@ class FemrepWindow(QMainWindow):
                 QMessageBox.warning(self, "femrep", f"Could not load template {name!r}: {e}")
         return cfg
 
+    # ------------------------------------------------------------- content panel
+    def _enabled_sections(self) -> list[str]:
+        """Ordered section keys enabled by the selected template (or defaults)."""
+        name = self.cmb_template.currentText()
+        if self.project and name and name != "Built-in default":
+            try:
+                tpl = templates_mod.load_template(self.project, name)
+                return [s["key"] for s in templates_mod.to_config(tpl).get("sections", [])]
+            except (FileNotFoundError, ValueError):
+                pass
+        return [k for k, _ in templates_mod.SECTIONS]
+
+    def _section_availability(self, key: str) -> tuple[str, str]:
+        """(badge, label) describing whether a section's data is available, from
+        the last pipeline payload. Read-only — editing lives in TemplateDialog."""
+        if key == "composites":
+            return "warn", "контрольный пример"
+        if key == "gci":
+            checks = (self.last_payload or {}).get("checks") or {}
+            if checks.get("gci"):
+                return "ok", "доступно"
+            return "warn", "нет данных GCI"
+        return "ok", "доступно"
+
+    def _refresh_content_panel(self):
+        if not hasattr(self, "content_lay"):
+            return
+        while self.content_lay.count():
+            item = self.content_lay.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+        for key in self._enabled_sections():
+            badge_prop, badge_text = self._section_availability(key)
+            row = QWidget(); rl = QHBoxLayout(row)
+            rl.setContentsMargins(0, 0, 0, 0); rl.setSpacing(10)
+            title = QLabel(locale_ru.SECTION_TITLES_RU.get(key, key)); title.setWordWrap(True)
+            badge = QLabel(badge_text); badge.setAlignment(Qt.AlignCenter)
+            _set_prop(badge, "badge", badge_prop)
+            rl.addWidget(title, 1)
+            rl.addWidget(badge, 0, Qt.AlignTop)
+            self.content_lay.addWidget(row)
+        self.content_lay.addStretch()
+
     # ------------------------------------------------------------- run pipeline
     def _run(self):
-        if not hasattr(self, "result_file"):
-            QMessageBox.warning(self, "femrep", "Сначала выберите файл результатов.")
+        result_file = self.attachments.get("result")
+        if result_file is None:
+            QMessageBox.warning(self, "femrep", "Сначала прикрепите файл результатов.")
             return
-        self.out_dir = Path.cwd() / "femrep_out" / self.result_file.stem
+        self.out_dir = Path.cwd() / "femrep_out" / result_file.stem
         self.out_dir.mkdir(parents=True, exist_ok=True)
         self.btn_run.setEnabled(False); self.progress.setVisible(True); self.progress.setRange(0, 0)
         self.lbl_status.setText("выполняется…")
         self.worker = PipelineWorker(
-            self.result_file, self.report_mode,
-            getattr(self, "log_file", None), getattr(self, "deck_file", None),
-            getattr(self, "gci_file", None), self.out_dir, self.chk_figs.isChecked())
+            result_file, self.report_mode,
+            self.attachments.get("log"), self.attachments.get("deck"),
+            self.attachments.get("gci"), self.out_dir, self.chk_figs.isChecked())
         self.worker.progress.connect(self._on_progress)
         self.worker.finished_ok.connect(self._on_done)
         self.worker.failed.connect(self._on_fail)
@@ -529,6 +633,11 @@ class FemrepWindow(QMainWindow):
         else:
             self.lbl_gost.setText("")
             self.rb_pdf.setEnabled(True); self.rb_docx.setEnabled(True)
+
+    def _refresh_export_sections(self):
+        titles = [locale_ru.SECTION_TITLES_RU.get(k, k) for k in self._enabled_sections()]
+        self.lbl_export_sections.setText("  ·  ".join(titles) if titles
+                                         else "разделы не выбраны")
 
     # ------------------------------------------------------------- render
     def _render_to(self, path: Path, cfg: dict) -> Path:

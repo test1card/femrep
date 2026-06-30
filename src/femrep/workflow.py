@@ -19,6 +19,26 @@ from . import extract, govern
 
 HERE = Path(__file__).parent
 
+# Universal-attach input classification by file suffix (case-insensitive).
+_INPUT_ROLES: dict[str, tuple[str, ...]] = {
+    "result": (".rst", ".rth", ".f06", ".op2"),
+    "log": (".mntr", ".out", ".log"),
+    "gci": (".json",),
+    "deck": (".dat", ".bdf", ".inp", ".cdb"),
+}
+
+
+def classify_input(path) -> str:
+    """Classify an attached file into a role by its suffix (case-insensitive).
+
+    Returns one of "result", "log", "gci", "deck", or "unknown".
+    """
+    suffix = Path(path).suffix.lower()
+    for role, suffixes in _INPUT_ROLES.items():
+        if suffix in suffixes:
+            return role
+    return "unknown"
+
 
 TEMPLATES = {
     "client": {"title": "FEM Analysis Report"},
