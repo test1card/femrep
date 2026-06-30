@@ -257,35 +257,20 @@ def _render_composites(story, results: dict, cfg: dict, st: dict, figures: dict)
             "As-draped ply angles (not nominal) feed stiffness, strength and CTE.", st["claim"]))
 
 
-def render(results: dict, manifest: dict, checks: dict, cfg: dict,
-           figures: dict, meta: dict, out_path: Path) -> None:
-    st = _styles(cfg)
-    meta = {**meta, "sha": results.get("result_sha256", "")}
-    qoi = results["primary_qoi"]
-    gci = checks.get("gci")
-    readiness = checks.get("readiness")
-    page_size = A4 if cfg.get("page_size", "A4") == "A4" else LETTER
+from . import templates as _templates
 
-    doc = BaseDocTemplate(str(out_path), pagesize=page_size,
-                          leftMargin=20 * mm, rightMargin=20 * mm,
-                          topMargin=20 * mm, bottomMargin=15 * mm,
-                          title=cfg.get("title", "FEM Report"))
-    frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="main")
-    cover_frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="cover")
-    doc.addPageTemplates([
-        PageTemplate(id="Cover", frames=[cover_frame],
-                     onPage=lambda c, d: _page_decorations(c, d, cfg, meta)),
-        PageTemplate(id="Body", frames=[frame],
-                     onPage=lambda c, d: _page_decorations(c, d, cfg, meta)),
-    ])
 
-    story = []
-    _cover_band(story, cfg, manifest, meta, st)
-    story.append(NextPageTemplate("Body"))
-    story.append(PageBreak())
+def _h2(story, n, title, intro, st):
+    """Numbered section heading + optional template intro paragraph."""
+    story.append(Paragraph(f"{n}. {title}", st["h2"]))
+    if intro:
+        story.append(Paragraph(intro, st["body"]))
 
-    # --- 1. Summary ---
-    story.append(Paragraph("1. Summary", st["h2"]))
+
+def _sec_summary(story, n, intro, ctx):
+    cfg, st, qoi = ctx["cfg"], ctx["st"], ctx["qoi"]
+    results, checks, readiness = ctx["results"], ctx["checks"], ctx["readiness"]
+    _h2(story, n, "Summary", intro, st)
     story.append(Paragraph(checks["claim"].replace("**", ""), st["claim"]))
     story.append(_kv_table([
         ("Readiness", readiness.get("summary", "(not evaluated)") if readiness else "(not evaluated)"),
@@ -302,12 +287,14 @@ def render(results: dict, manifest: dict, checks: dict, cfg: dict,
          f"{cfg.get('prepared_by') or '-'} / {cfg.get('checked_by') or '-'} / {cfg.get('approved_by') or '-'}"),
     ], cfg, st))
 
-    # --- 2. Model ---
+
+def _sec_model(story, n, intro, ctx):
+    cfg, st, results, manifest = ctx["cfg"], ctx["st"], ctx["results"], ctx["manifest"]
     et = ", ".join(f"{k}: {v:,}" for k, v in results["mesh"]["element_types"].items())
     n_elem = sum(results["mesh"]["element_types"].values()) if results["mesh"]["element_types"] \
         else results["mesh"].get("elements", 0)
     n_elem = n_elem if isinstance(n_elem, int) else 0
-    story.append(Paragraph("2. Model", st["h2"]))
+    _h2(story, n, "Model", intro, st)
     story.append(_kv_table([
         ("Nodes / elements", f"{results['mesh']['nodes']:,} / {n_elem:,}"
                               + ("" if n_elem else "  (not in .f06 — node/point dump only)")),
@@ -317,8 +304,10 @@ def render(results: dict, manifest: dict, checks: dict, cfg: dict,
         ("Result file", Path(results["result_file"]).name),
     ], cfg, st))
 
-    # --- 3. Meshing ---
-    story.append(Paragraph("3. Meshing", st["h2"]))
+
+def _sec_meshing(story, n, intro, ctx):
+    cfg, st, results = ctx["cfg"], ctx["st"], ctx["results"]
+    _h2(story, n, "Meshing", intro, st)
     story.append(Paragraph("Element distribution and mesh quality. Quality-metric "
                            "extraction (skewness, Jacobian, growth ratio) lands with M3/M4; "
                            "the histogram below is the current mesh composition.", st["body"]))
@@ -331,12 +320,15 @@ def render(results: dict, manifest: dict, checks: dict, cfg: dict,
                                          ("ROWBACKGROUNDS", (0, 1), (-1, -1),
                                           [colors.white, _hex("#f8f9fa")])])))
 
-    # --- 4. Composites / CFRP ---
-    story.append(Paragraph("4. Composites / CFRP", st["h2"]))
-    _render_composites(story, results, cfg, st, figures)
 
-    # --- 5. Mechanical solve ---
-    story.append(Paragraph("5. Mechanical / solve", st["h2"]))
+def _sec_composites(story, n, intro, ctx):
+    _h2(story, n, "Composites / CFRP", intro, ctx["st"])
+    _render_composites(story, ctx["results"], ctx["cfg"], ctx["st"], ctx["figures"])
+
+
+def _sec_solve(story, n, intro, ctx):
+    cfg, st, results, manifest = ctx["cfg"], ctx["st"], ctx["results"], ctx["manifest"]
+    _h2(story, n, "Mechanical / solve", intro, st)
     c = results.get("convergence", {})
     cv = c.get("converged")
     verdict_txt = ({True: "converged", False: "non-convergence / stop marker",
@@ -349,8 +341,10 @@ def render(results: dict, manifest: dict, checks: dict, cfg: dict,
         ("Solver", f"{manifest.get('solver','')} {manifest.get('solver_version','')}"),
     ], cfg, st))
 
-    # --- 6. Results ---
-    story.append(Paragraph("6. Results", st["h2"]))
+
+def _sec_results(story, n, intro, ctx):
+    cfg, st, figures = ctx["cfg"], ctx["st"], ctx["figures"]
+    _h2(story, n, "Results", intro, st)
     _add_figure(story, figures.get("contour_views"),
                 "QoI field contour, four-view plate.", cfg, st, width_mm=165)
     _add_figure(story, figures.get("contour"), "QoI field contour (pyvista off-screen).",
@@ -361,14 +355,18 @@ def render(results: dict, manifest: dict, checks: dict, cfg: dict,
     _add_figure(story, figures.get("time_history"), "Transient time-history / QoI snapshot.",
                 cfg, st)
 
-    # --- 7. Mesh-independence (GCI) ---
-    story.append(Paragraph("7. Mesh independence (GCI)", st["h2"]))
+
+def _sec_gci(story, n, intro, ctx):
+    cfg, st, figures, gci = ctx["cfg"], ctx["st"], ctx["figures"], ctx["gci"]
+    _h2(story, n, "Mesh independence (GCI)", intro, st)
     story.append(_gci_table(gci, cfg, st))
     _add_figure(story, figures.get("gci_convergence"),
                 "GCI fine/coarse vs the 3% acceptance gate.", cfg, st, width_mm=120)
 
-    # --- 8. Governance ---
-    story.append(Paragraph("8. Governance (femis)", st["h2"]))
+
+def _sec_governance(story, n, intro, ctx):
+    cfg, st, checks, readiness = ctx["cfg"], ctx["st"], ctx["checks"], ctx["readiness"]
+    _h2(story, n, "Governance (femis)", intro, st)
     story.append(Paragraph("Gates — each verdict is computed, never invented to 'pass'.", st["body"]))
     if readiness:
         story.append(Paragraph(readiness.get("summary", ""), st["claim"]))
@@ -376,8 +374,10 @@ def render(results: dict, manifest: dict, checks: dict, cfg: dict,
     story.append(Spacer(1, 4 * mm))
     story.append(_gates_table(checks["gates"], cfg, st))
 
-    # --- 9. Manifest ---
-    story.append(Paragraph("9. Run manifest (provenance)", st["h2"]))
+
+def _sec_manifest(story, n, intro, ctx):
+    cfg, st, results, manifest = ctx["cfg"], ctx["st"], ctx["results"], ctx["manifest"]
+    _h2(story, n, "Run manifest (provenance)", intro, st)
     story.append(Paragraph(f"<b>Result SHA-256:</b> {results.get('result_sha256','')}", st["mono"]))
     story.append(_kv_table([
         ("Solver / version", f"{manifest.get('solver','')} {manifest.get('solver_version','')}"),
@@ -387,7 +387,65 @@ def render(results: dict, manifest: dict, checks: dict, cfg: dict,
         ("Superseded by", manifest.get("superseded_by") or "(current — final)"),
     ], cfg, st))
 
+
+SECTION_BUILDERS = {
+    "summary": _sec_summary, "model": _sec_model, "meshing": _sec_meshing,
+    "composites": _sec_composites, "solve": _sec_solve, "results": _sec_results,
+    "gci": _sec_gci, "governance": _sec_governance, "manifest": _sec_manifest,
+}
+
+
+def build_story(results: dict, manifest: dict, checks: dict, cfg: dict,
+                figures: dict, meta: dict, st: dict) -> list:
+    """Assemble the flowable story: cover band + the template's enabled sections,
+    in order, dynamically numbered. cfg['sections'] (from a template) drives the
+    selection; absent it, every section renders in canonical order — identical to
+    pre-template output."""
+    story: list = []
+    _cover_band(story, cfg, manifest, meta, st)
     story.append(NextPageTemplate("Body"))
+    story.append(PageBreak())
+
+    ctx = {"results": results, "manifest": manifest, "checks": checks, "cfg": cfg,
+           "st": st, "figures": figures, "qoi": results["primary_qoi"],
+           "gci": checks.get("gci"), "readiness": checks.get("readiness")}
+    # key absent => no template => render every section; an explicit (possibly
+    # empty) list from a template is honored as-is.
+    sections = cfg["sections"] if "sections" in cfg else [
+        {"key": k, "title": t, "intro": ""} for k, t in _templates.SECTIONS]
+    n = 0
+    for s in sections:
+        builder = SECTION_BUILDERS.get(s["key"])
+        if builder is None:
+            continue
+        n += 1
+        builder(story, n, s.get("intro", ""), ctx)
+    if n == 0:
+        story.append(Paragraph("No report sections are enabled in this template.", st["body"]))
+    story.append(NextPageTemplate("Body"))
+    return story
+
+
+def render(results: dict, manifest: dict, checks: dict, cfg: dict,
+           figures: dict, meta: dict, out_path: Path) -> None:
+    st = _styles(cfg)
+    meta = {**meta, "sha": results.get("result_sha256", "")}
+    page_size = A4 if cfg.get("page_size", "A4") == "A4" else LETTER
+
+    doc = BaseDocTemplate(str(out_path), pagesize=page_size,
+                          leftMargin=20 * mm, rightMargin=20 * mm,
+                          topMargin=20 * mm, bottomMargin=15 * mm,
+                          title=cfg.get("title", "FEM Report"))
+    frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="main")
+    cover_frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="cover")
+    doc.addPageTemplates([
+        PageTemplate(id="Cover", frames=[cover_frame],
+                     onPage=lambda c, d: _page_decorations(c, d, cfg, meta)),
+        PageTemplate(id="Body", frames=[frame],
+                     onPage=lambda c, d: _page_decorations(c, d, cfg, meta)),
+    ])
+
+    story = build_story(results, manifest, checks, cfg, figures, meta, st)
     doc.build(story)
 
 

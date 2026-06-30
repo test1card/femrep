@@ -87,29 +87,20 @@ def _h(doc, text: str, *, level: int = 1, color_hex: str = "1F3A5F"):
     return p
 
 
-def render(results: dict, manifest: dict, checks: dict, cfg: dict,
-           figures: dict, meta: dict, out_path: Path) -> None:
-    doc = Document()
-    qoi = results["primary_qoi"]
-    gci = checks.get("gci")
-    readiness = checks.get("readiness")
-    primary = cfg.get("color_primary", "1F3A5F").lstrip("#")
+from . import templates as _templates
 
-    # --- Cover ---
-    title = doc.add_heading(cfg.get("title", "FEM Analysis Report"), level=0)
-    sub = doc.add_paragraph(
-        f"{manifest.get('analysis_type','').split(' ')[0]} analysis · "
-        f"{manifest.get('solver','')} {manifest.get('solver_version','')}")
-    sub.runs[0].font.color.rgb = _hex_rgb("868E96")
-    doc_id = cfg.get("document_number") or "uncontrolled draft"
-    rev = cfg.get("revision") or "-"
-    p = doc.add_paragraph(f"Generated {meta.get('generated','')[:10]}  ·  "
-                          f"Issued engineering report  ·  Doc {doc_id} Rev {rev}")
-    p.runs[0].bold = True
-    doc.add_paragraph()
 
-    # --- 1. Summary ---
-    _h(doc, "1. Summary", color_hex=primary)
+def _dh(doc, n, title, intro, primary):
+    """Numbered DOCX section heading + optional template intro paragraph."""
+    _h(doc, f"{n}. {title}", color_hex=primary)
+    if intro:
+        doc.add_paragraph(intro)
+
+
+def _dsec_summary(doc, n, intro, ctx):
+    cfg, primary = ctx["cfg"], ctx["primary"]
+    results, checks, qoi, readiness = ctx["results"], ctx["checks"], ctx["qoi"], ctx["readiness"]
+    _dh(doc, n, "Summary", intro, primary)
     claim_p = doc.add_paragraph(checks["claim"].replace("**", ""))
     claim_p.style = doc.styles["Intense Quote"] if "Intense Quote" in [s.name for s in doc.styles] else None
     _add_table(doc, ["Field", "Value"], [
@@ -127,8 +118,10 @@ def render(results: dict, manifest: dict, checks: dict, cfg: dict,
          f"{cfg.get('prepared_by') or '-'} / {cfg.get('checked_by') or '-'} / {cfg.get('approved_by') or '-'}"],
     ], widths_cm=[5, 11], primary_hex=primary)
 
-    # --- 2. Model ---
-    _h(doc, "2. Model", color_hex=primary)
+
+def _dsec_model(doc, n, intro, ctx):
+    results, manifest, primary = ctx["results"], ctx["manifest"], ctx["primary"]
+    _dh(doc, n, "Model", intro, primary)
     et = ", ".join(f"{k}: {v:,}" for k, v in results["mesh"]["element_types"].items())
     n_elem = sum(results["mesh"]["element_types"].values()) if results["mesh"]["element_types"] \
         else results["mesh"].get("elements", 0)
@@ -142,18 +135,23 @@ def render(results: dict, manifest: dict, checks: dict, cfg: dict,
         ["Result file", Path(results["result_file"]).name],
     ], widths_cm=[5, 11], primary_hex=primary)
 
-    # --- 3. Meshing ---
-    _h(doc, "3. Meshing", color_hex=primary)
+
+def _dsec_meshing(doc, n, intro, ctx):
+    results, primary = ctx["results"], ctx["primary"]
+    _dh(doc, n, "Meshing", intro, primary)
     _add_table(doc, ["element", "count"],
                [[k, f"{v:,}"] for k, v in results["mesh"]["element_types"].items()],
                widths_cm=[6, 4], primary_hex=primary)
 
-    # --- 4. Composites / CFRP ---
-    _h(doc, "4. Composites / CFRP", color_hex=primary)
-    _render_composites(doc, results, cfg, primary)
 
-    # --- 5. Mechanical / solve ---
-    _h(doc, "5. Mechanical / solve", color_hex=primary)
+def _dsec_composites(doc, n, intro, ctx):
+    _dh(doc, n, "Composites / CFRP", intro, ctx["primary"])
+    _render_composites(doc, ctx["results"], ctx["cfg"], ctx["primary"])
+
+
+def _dsec_solve(doc, n, intro, ctx):
+    results, manifest, primary = ctx["results"], ctx["manifest"], ctx["primary"]
+    _dh(doc, n, "Mechanical / solve", intro, primary)
     c = results.get("convergence", {})
     cv = c.get("converged")
     conv = {True: "converged", False: "non-convergence / stop marker",
@@ -166,8 +164,10 @@ def render(results: dict, manifest: dict, checks: dict, cfg: dict,
         ["Solver", f"{manifest.get('solver','')} {manifest.get('solver_version','')}"],
     ], widths_cm=[5, 11], primary_hex=primary)
 
-    # --- 6. Results (figures) ---
-    _h(doc, "6. Results", color_hex=primary)
+
+def _dsec_results(doc, n, intro, ctx):
+    figures, primary = ctx["figures"], ctx["primary"]
+    _dh(doc, n, "Results", intro, primary)
     for key, cap in [("contour_views", "QoI field contour, four-view plate."),
                      ("contour", "QoI field contour (pyvista off-screen)."),
                      ("deformed_shape", "Undeformed (wireframe) vs deformed shape (scaled)."),
@@ -178,8 +178,10 @@ def render(results: dict, manifest: dict, checks: dict, cfg: dict,
             doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
             doc.add_paragraph(cap).runs[0].italic = True
 
-    # --- 7. Mesh-independence (GCI) ---
-    _h(doc, "7. Mesh independence (GCI)", color_hex=primary)
+
+def _dsec_gci(doc, n, intro, ctx):
+    figures, primary, gci = ctx["figures"], ctx["primary"], ctx["gci"]
+    _dh(doc, n, "Mesh independence (GCI)", intro, primary)
     if gci:
         _add_table(doc, ["Metric", "Value"], [
             ["refinement ratio r21", f"{gci['r21']:.3f}"],
@@ -197,8 +199,10 @@ def render(results: dict, manifest: dict, checks: dict, cfg: dict,
     else:
         doc.add_paragraph("No GCI study provided — single-mesh result (see gates).")
 
-    # --- 8. Governance (gates) ---
-    _h(doc, "8. Governance (femis)", color_hex=primary)
+
+def _dsec_governance(doc, n, intro, ctx):
+    checks, primary, readiness = ctx["checks"], ctx["primary"], ctx["readiness"]
+    _dh(doc, n, "Governance (femis)", intro, primary)
     if readiness:
         doc.add_paragraph(readiness.get("summary", ""))
         _add_table(doc, ["Evidence", "Status", "Note"],
@@ -218,8 +222,10 @@ def render(results: dict, manifest: dict, checks: dict, cfg: dict,
                 r.font.color.rgb = _hex_rgb(VERDICT_HEX[g["verdict"]])
                 r.bold = True
 
-    # --- 9. Manifest ---
-    _h(doc, "9. Run manifest (provenance)", color_hex=primary)
+
+def _dsec_manifest(doc, n, intro, ctx):
+    results, manifest, primary = ctx["results"], ctx["manifest"], ctx["primary"]
+    _dh(doc, n, "Run manifest (provenance)", intro, primary)
     doc.add_paragraph(f"Result SHA-256: {results.get('result_sha256','')}").runs[0].font.name = "Consolas"
     _add_table(doc, ["Field", "Value"], [
         ["Solver / version", f"{manifest.get('solver','')} {manifest.get('solver_version','')}"],
@@ -229,6 +235,55 @@ def render(results: dict, manifest: dict, checks: dict, cfg: dict,
         ["Superseded by", manifest.get("superseded_by") or "(current — final)"],
     ], widths_cm=[5, 11], primary_hex=primary)
 
+
+SECTION_BUILDERS = {
+    "summary": _dsec_summary, "model": _dsec_model, "meshing": _dsec_meshing,
+    "composites": _dsec_composites, "solve": _dsec_solve, "results": _dsec_results,
+    "gci": _dsec_gci, "governance": _dsec_governance, "manifest": _dsec_manifest,
+}
+
+
+def build_doc(results: dict, manifest: dict, checks: dict, cfg: dict,
+              figures: dict, meta: dict):
+    """Build and return the Word Document: cover + the template's enabled sections,
+    in order, dynamically numbered. Mirrors report_pdf.build_story. cfg['sections']
+    drives selection; absent it, every section renders in canonical order."""
+    doc = Document()
+    primary = cfg.get("color_primary", "1F3A5F").lstrip("#")
+
+    # --- Cover ---
+    doc.add_heading(cfg.get("title", "FEM Analysis Report"), level=0)
+    sub = doc.add_paragraph(
+        f"{manifest.get('analysis_type','').split(' ')[0]} analysis · "
+        f"{manifest.get('solver','')} {manifest.get('solver_version','')}")
+    sub.runs[0].font.color.rgb = _hex_rgb("868E96")
+    doc_id = cfg.get("document_number") or "uncontrolled draft"
+    rev = cfg.get("revision") or "-"
+    p = doc.add_paragraph(f"Generated {meta.get('generated','')[:10]}  ·  "
+                          f"Issued engineering report  ·  Doc {doc_id} Rev {rev}")
+    p.runs[0].bold = True
+    doc.add_paragraph()
+
+    ctx = {"results": results, "manifest": manifest, "checks": checks, "cfg": cfg,
+           "figures": figures, "primary": primary, "qoi": results["primary_qoi"],
+           "gci": checks.get("gci"), "readiness": checks.get("readiness")}
+    sections = cfg["sections"] if "sections" in cfg else [
+        {"key": k, "title": t, "intro": ""} for k, t in _templates.SECTIONS]
+    n = 0
+    for s in sections:
+        builder = SECTION_BUILDERS.get(s["key"])
+        if builder is None:
+            continue
+        n += 1
+        builder(doc, n, s.get("intro", ""), ctx)
+    if n == 0:
+        doc.add_paragraph("No report sections are enabled in this template.")
+    return doc
+
+
+def render(results: dict, manifest: dict, checks: dict, cfg: dict,
+           figures: dict, meta: dict, out_path: Path) -> None:
+    doc = build_doc(results, manifest, checks, cfg, figures, meta)
     doc.save(str(out_path))
 
 

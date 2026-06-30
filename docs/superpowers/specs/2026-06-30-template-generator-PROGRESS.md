@@ -5,10 +5,10 @@ Test venv: `./.test-venv/bin/python -m pytest tests/ -q`. Build wheel:
 `./.test-venv/bin/python -m build -w`.
 
 ## Checklist
-- [ ] 1. Spec written + committed
-- [ ] 2. `templates.py` module + tests (model, validate, to_config, seed, per-project I/O)
-- [ ] 3. `report_pdf.py` section-registry refactor + tests (subset/reorder/number/intro; default unchanged)
-- [ ] 4. `report_docx.py` section-registry refactor + tests (mirror PDF)
+- [x] 1. Spec written + committed
+- [x] 2. `templates.py` module + tests (model, validate, to_config, seed, per-project I/O)
+- [x] 3. `report_pdf.py` section-registry refactor + tests (subset/reorder/number/intro; default unchanged)
+- [x] 4. `report_docx.py` section-registry refactor + tests (mirror PDF)
 - [ ] 5. `workflow.load_config` + `run_report` template overlay; CLI `--template-file`; tests
 - [ ] 6. GUI: Templates tab (project picker, list, new blank/from-result, edit form, save), report-screen template dropdown
 - [ ] 7. Full suite green; build wheel; bump 0.3.0
