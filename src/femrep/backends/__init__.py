@@ -7,7 +7,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import ansys_dpf
+
+def _ansys_adapter(result_file: Path, solve_log: Path | None = None,
+                   qoi: str | None = None) -> dict:
+    """Lazy: import ansys.dpf only when an .rst/.rth is actually read, so launching
+    the GUI or reading a Nastran .f06 never loads (or crashes on) ansys-dpf-core."""
+    from . import ansys_dpf
+    return ansys_dpf.extract(result_file, solve_log, qoi)
 
 
 def _op2_adapter(result_file: Path, solve_log: Path | None = None,
@@ -24,8 +30,8 @@ def _f06_adapter(result_file: Path, solve_log: Path | None = None,
 
 
 REGISTRY = {
-    ".rth": ansys_dpf.extract,
-    ".rst": ansys_dpf.extract,
+    ".rth": _ansys_adapter,
+    ".rst": _ansys_adapter,
     ".f06": _f06_adapter,
     ".op2": _op2_adapter,
 }

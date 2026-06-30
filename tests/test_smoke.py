@@ -71,6 +71,19 @@ def test_backend_registry_has_all_formats():
         assert ext in REGISTRY
 
 
+def test_importing_backends_does_not_load_ansys_dpf():
+    """Launching the GUI / reading a .f06 must not import ansys-dpf-core (a finicky
+    old version would otherwise crash GUI startup). Checked in a clean subprocess."""
+    import subprocess
+    src = str(Path(__file__).resolve().parents[1] / "src")
+    code = ("import sys, femrep.backends; "
+            "bad=[m for m in sys.modules if m.startswith('ansys.dpf')]; "
+            "assert not bad, bad")
+    r = subprocess.run([sys.executable, "-c", code], cwd=src,
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+
+
 def _minimal_results() -> dict:
     return {
         "solver_hint": "nastran steady_thermal (.f06)",

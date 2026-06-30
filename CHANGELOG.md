@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.5.3
+
+**Fix: GUI crashed silently at startup on old Ansys (lazy DPF import).**
+
+- The backend registry imported `ansys.dpf` eagerly, so merely launching the GUI
+  loaded `ansys-dpf-core`; with the legacy 0.9 build that import could abort and
+  the windowed launcher closed with no message. The Ansys backend is now imported
+  lazily — only when an `.rst`/`.rth` is actually read. The GUI and the `.f06`
+  path no longer touch DPF.
+- `main()` now logs any startup exception to `%LOCALAPPDATA%/femrep/femrep-crash.log`
+  and shows it in a dialog. Added `femrep-debug.bat` to launch with a console.
+
 ## v0.5.2
 
 **One-click Ansys 2021/2022R1 installer — gets its own Python 3.11.**
