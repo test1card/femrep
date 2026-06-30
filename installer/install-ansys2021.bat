@@ -57,10 +57,12 @@ echo  [2/4] Installing femrep and ansys-dpf-core 0.9 (this may take minutes)...
 set "WHEEL="
 for %%f in ("%~dp0femrep-*.whl") do set "WHEEL=%%f"
 "%VENV%\Scripts\python.exe" -m pip install --upgrade pip >nul 2>&1
+REM setuptools provides pkg_resources, which ansys-dpf-core 0.9 imports but does
+REM not declare; modern (uv / 3.12+) venvs do not include it by default.
 if defined WHEEL (
-    "%VENV%\Scripts\python.exe" -m pip install "%WHEEL%[gui]" "ansys-dpf-core==0.9.0"
+    "%VENV%\Scripts\python.exe" -m pip install "%WHEEL%[gui]" "ansys-dpf-core==0.9.0" setuptools
 ) else (
-    "%VENV%\Scripts\python.exe" -m pip install "femrep[gui]" "ansys-dpf-core==0.9.0"
+    "%VENV%\Scripts\python.exe" -m pip install "femrep[gui]" "ansys-dpf-core==0.9.0" setuptools
 )
 if errorlevel 1 (
     echo.

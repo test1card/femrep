@@ -39,6 +39,11 @@ def main(argv=None) -> int:
     print(f"Executable     : {sys.executable}")
     print(f"femrep         : {_version('femrep')}")
     print(f"ansys-dpf-core : {_version('ansys-dpf-core')}")
+    try:
+        import pkg_resources  # noqa: F401  (provided by setuptools; old DPF needs it)
+        print("pkg_resources  : available")
+    except Exception:
+        print("pkg_resources  : MISSING — run: pip install setuptools  (old DPF imports it)")
 
     roots = sorted(k for k in os.environ if k.startswith("AWP_ROOT"))
     if roots:

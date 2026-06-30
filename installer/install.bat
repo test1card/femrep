@@ -79,11 +79,13 @@ if defined DPF_PIN (
 )
 
 "%VENV%\Scripts\python.exe" -m pip install --upgrade pip >nul 2>&1
+REM setuptools provides pkg_resources, which some ansys-dpf-core versions import
+REM but do not declare; modern venvs (Python 3.12+) omit it by default.
 if defined WHEEL (
-    "%VENV%\Scripts\python.exe" -m pip install "%WHEEL%[gui]" %DPF_PIN%
+    "%VENV%\Scripts\python.exe" -m pip install "%WHEEL%[gui]" %DPF_PIN% setuptools
 ) else (
     echo        ^(no bundled wheel found - installing from PyPI^)
-    "%VENV%\Scripts\python.exe" -m pip install "femrep[gui]" %DPF_PIN%
+    "%VENV%\Scripts\python.exe" -m pip install "femrep[gui]" %DPF_PIN% setuptools
 )
 if errorlevel 1 (
     echo.

@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.5.5
+
+**Fix: `No module named pkg_resources` on the legacy Ansys path.**
+
+- `ansys-dpf-core` 0.9 imports `pkg_resources` (part of `setuptools`) but doesn't
+  declare it, and modern venvs (uv / Python 3.12+) omit it. Both installers now
+  install `setuptools`. `femrep diagnose` reports whether `pkg_resources` is present.
+
 ## v0.5.4
 
 **Ansys 2021/2022R1 diagnostics.**
