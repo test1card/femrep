@@ -322,7 +322,8 @@ class FemrepWindow(QMainWindow):
         v.addSpacing(8)
         v.addWidget(self._section("Шаблон оформления (Template)"))
         self.cmb_template = QComboBox()
-        self.cmb_template.addItem("Built-in default")
+        self.cmb_template.addItem(locale_ru.BUILTIN_DEFAULT_LABEL, ("builtin", "default"))
+        self.cmb_template.addItem(locale_ru.BUILTIN_GOST_LABEL, ("builtin", "gost_ru"))
         self.cmb_template.currentIndexChanged.connect(lambda _i: self._refresh_content_panel())
         v.addWidget(self.cmb_template)
 
@@ -454,15 +455,22 @@ class FemrepWindow(QMainWindow):
     def _refresh_templates(self, select: str | None = None):
         self.cmb_template.blockSignals(True)
         self.cmb_template.clear()
-        self.cmb_template.addItem("Built-in default")
+        self.cmb_template.addItem(locale_ru.BUILTIN_DEFAULT_LABEL, ("builtin", "default"))
+        self.cmb_template.addItem(locale_ru.BUILTIN_GOST_LABEL, ("builtin", "gost_ru"))
         if self.project:
             for name in templates_mod.list_templates(self.project):
-                self.cmb_template.addItem(name)
+                self.cmb_template.addItem(name, ("project", name))
         if select:
             i = self.cmb_template.findText(select)
             if i >= 0:
                 self.cmb_template.setCurrentIndex(i)
         self.cmb_template.blockSignals(False)
+
+    def _current_template_ref(self) -> tuple[str, str]:
+        """(kind, ref) for the selected dropdown item: ('builtin','default'),
+        ('builtin','gost_ru'), or ('project', <name>). Defaults to builtin default."""
+        data = self.cmb_template.currentData()
+        return data if isinstance(data, tuple) else ("builtin", "default")
 
     def _manage_templates(self):
         if not self.project:
@@ -473,24 +481,31 @@ class FemrepWindow(QMainWindow):
         self._refresh_templates(select=dlg.saved_name)
 
     def _selected_cfg(self):
-        """Base config.yaml, overlaid with the selected project template (if any)."""
+        """Base config.yaml, then apply the selected dropdown entry: a built-in
+        profile (default / gost_ru) or a project template overlay."""
         cfg = cli_mod._load_config(HERE / "config.yaml")
-        name = self.cmb_template.currentText()
-        if self.project and name and name != "Built-in default":
+        kind, ref = self._current_template_ref()
+        if kind == "builtin":
+            if ref == "gost_ru":
+                cfg["profile"] = "gost_ru"
+        elif kind == "project" and self.project:
             try:
-                tpl = templates_mod.load_template(self.project, name)
+                tpl = templates_mod.load_template(self.project, ref)
                 cfg.update(templates_mod.to_config(tpl))
             except (FileNotFoundError, ValueError) as e:
-                QMessageBox.warning(self, "femrep", f"Could not load template {name!r}: {e}")
+                QMessageBox.warning(self, "femrep",
+                                    locale_ru.GUI["msg_load_template_failed"].format(
+                                        name=repr(ref), err=e))
         return cfg
 
     # ------------------------------------------------------------- content panel
     def _enabled_sections(self) -> list[str]:
-        """Ordered section keys enabled by the selected template (or defaults)."""
-        name = self.cmb_template.currentText()
-        if self.project and name and name != "Built-in default":
+        """Ordered section keys for the selection. Both built-ins use the full
+        default section list; a project template uses its enabled sections."""
+        kind, ref = self._current_template_ref()
+        if kind == "project" and self.project:
             try:
-                tpl = templates_mod.load_template(self.project, name)
+                tpl = templates_mod.load_template(self.project, ref)
                 return [s["key"] for s in templates_mod.to_config(tpl).get("sections", [])]
             except (FileNotFoundError, ValueError):
                 pass
