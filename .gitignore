@@ -29,3 +29,7 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# build tooling
+.build-venv/
+dist/
