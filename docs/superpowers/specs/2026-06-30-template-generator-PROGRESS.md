@@ -11,9 +11,13 @@ Test venv: `./.test-venv/bin/python -m pytest tests/ -q`. Build wheel:
 - [x] 4. `report_docx.py` section-registry refactor + tests (mirror PDF)
 - [ ] 5. `workflow.load_config` + `run_report` template overlay; CLI `--template-file`; tests
 - [x] 6. GUI: project picker, template dropdown, TemplateDialog (list, new blank/from-result, dup/delete, branding form, section checklist+reorder+intro, save); 2 offscreen tests
-- [ ] 7. Full suite green; build wheel; bump 0.3.0
-- [ ] 8. Re-bundle Windows installer + README/limitations note; release v0.3.0
-- [ ] 9. Polish pass (code-review/simplify), changelog, final verify
+- [x] 7. Full suite green (38); built 0.3.0 wheel; version bumped
+- [x] 8. Re-bundled Windows installer; README + CHANGELOG; released v0.3.0 (Latest)
+- [x] 9. Verified default PDF+DOCX byte-for-byte identical vs v0.2.1 (empirical render diff); 38 tests green
+
+## DONE — v0.3.0 shipped
+Release: https://github.com/test1card/femrep/releases/tag/v0.3.0
+Assets: femrep-0.3.0-windows.zip, femrep-0.3.0-py3-none-any.whl
 
 ## Notes / decisions
 - 9 sections (governance + manifest split) to keep default output byte-for-byte.
