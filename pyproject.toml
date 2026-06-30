@@ -1,6 +1,6 @@
 [project]
 name = "femrep"
-version = "0.5.0"
+version = "0.5.1"
 description = "femis-governed Ansys/Nastran FEM report generator — turns result files into defensible, standardized PDF/DOCX reports"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -9,7 +9,10 @@ authors = [{ name = "The femrep Authors" }]
 keywords = ["FEA", "FEM", "CAE", "Ansys", "Nastran", "report", "GCI", "V&V", "provenance"]
 
 dependencies = [
-    "ansys-dpf-core>=0.16",
+    # 0.16+ targets Ansys 2024 R2+/2026 R1; older Ansys needs an older pin — the
+    # installer auto-pins ansys-dpf-core==0.9.0 for Ansys 2021 R1/R2 & 2022 R1
+    # (DPF server v4.0, LegacyGrpc). Lower bound kept loose so that pin is installable.
+    "ansys-dpf-core>=0.9",
     "numpy>=1.26",
     "pyvista>=0.43",
     "matplotlib>=3.7",

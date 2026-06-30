@@ -54,6 +54,19 @@ femrep environment and the Desktop icon. It does not touch
 your Python or your Ansys installation.
 
 ------------------------------------------------------------
+ Ansys version compatibility (only matters for .rst / .rth)
+------------------------------------------------------------
+Nastran .f06 files work on any setup. Ansys .rst/.rth files read
+through DPF, which is strict about versions:
+
+  Ansys 2022 R2 and newer ... Python 3.10-3.12, latest DPF (default)
+  Ansys 2021 R1/R2, 2022 R1 . Python 3.10 or 3.11 ONLY, DPF 0.9
+
+install.bat auto-detects an old Ansys (AWP_ROOT212 etc.) and pins the
+compatible DPF automatically. For 2021/2022R1 you MUST install Python
+3.10 or 3.11 first (3.12+ will not work with that DPF).
+
+------------------------------------------------------------
  Getting help
 ------------------------------------------------------------
 Project page: https://github.com/test1card/femrep

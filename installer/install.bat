@@ -67,17 +67,29 @@ echo        ^(this downloads packages and may take a few minutes^)
 set "WHEEL="
 for %%f in ("%~dp0femrep-*.whl") do set "WHEEL=%%f"
 
+REM Old Ansys (2021 R1/R2, 2022 R1) ships DPF server v4.0, which only works with
+REM ansys-dpf-core 0.3-0.9 over LegacyGrpc. Detect it and pin the compatible DPF.
+set "DPF_PIN="
+if defined AWP_ROOT212 set "DPF_PIN=ansys-dpf-core==0.9.0"
+if defined AWP_ROOT211 set "DPF_PIN=ansys-dpf-core==0.9.0"
+if defined AWP_ROOT221 set "DPF_PIN=ansys-dpf-core==0.9.0"
+if defined DPF_PIN (
+    echo        Detected Ansys 2021-2022R1 - pinning %DPF_PIN% for DPF v4.0 ^(LegacyGrpc^).
+    echo        NOTE: this DPF needs Python 3.10 or 3.11 ^(not 3.12+^).
+)
+
 "%VENV%\Scripts\python.exe" -m pip install --upgrade pip >nul 2>&1
 if defined WHEEL (
-    "%VENV%\Scripts\python.exe" -m pip install "%WHEEL%[gui]"
+    "%VENV%\Scripts\python.exe" -m pip install "%WHEEL%[gui]" %DPF_PIN%
 ) else (
     echo        ^(no bundled wheel found - installing from PyPI^)
-    "%VENV%\Scripts\python.exe" -m pip install "femrep[gui]"
+    "%VENV%\Scripts\python.exe" -m pip install "femrep[gui]" %DPF_PIN%
 )
 if errorlevel 1 (
     echo.
-    echo  [X] Installation failed. The most common cause is no internet
-    echo      connection, or a Python version newer than 3.12.
+    echo  [X] Installation failed. Common causes: no internet connection, or a
+    echo      Python version too new for your Ansys. For Ansys 2021/2022R1 use
+    echo      Python 3.10 or 3.11; for newer Ansys, Python 3.10 - 3.12.
     pause
     exit /b 1
 )

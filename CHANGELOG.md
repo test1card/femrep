@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.5.1
+
+**Ansys 2021 R1/R2 & 2022 R1 support (DPF v4.0 / LegacyGrpc).**
+
+- These releases ship DPF server v4.0, which only works with `ansys-dpf-core`
+  0.3–0.9 over LegacyGrpc — the latest DPF client cannot talk to them. The
+  dependency lower bound is loosened to `>=0.9`, and `install.bat` now
+  auto-detects an old Ansys (`AWP_ROOT211/212/221`) and pins
+  `ansys-dpf-core==0.9.0`. Note: that DPF needs Python 3.10 or 3.11 (not 3.12+).
+- Nastran `.f06` is unaffected — it never used DPF and works on any setup.
+
 ## v0.5.0
 
 **Guided wizard GUI + Russian report in a real engineering register.**
