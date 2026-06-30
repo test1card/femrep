@@ -304,29 +304,41 @@ class FemrepWindow(QMainWindow):
             webbrowser.open(Path(self.last_payload["review_html"]).resolve().as_uri())
 
     # --- render ---
+    def _render_to(self, path: Path, cfg: dict) -> Path:
+        """Render the last payload to `path`, routing by the cfg's profile. The
+        gost_ru profile always emits a Russian .docx. Dialog-free so it is testable."""
+        from datetime import datetime
+        meta = {"generated": datetime.now().isoformat(timespec="seconds")}
+        pl = self.last_payload
+        if cfg.get("profile") == "gost_ru":
+            from . import report_gost_docx
+            if path.suffix.lower() != ".docx":
+                path = path.with_suffix(".docx")
+            report_gost_docx.render(pl["results"], pl["manifest"], pl["checks"], cfg,
+                                    pl["figures"], meta, path)
+        elif path.suffix.lower() == ".docx":
+            report_docx.render(pl["results"], pl["manifest"], pl["checks"], cfg,
+                               pl["figures"], meta, path)
+        else:
+            report_pdf.render(pl["results"], pl["manifest"], pl["checks"], cfg,
+                              pl["figures"], meta, path)
+        return path
+
     def _render(self):
         if not self.last_payload:
             return
-        ext = ".pdf" if self.rb_pdf.isChecked() else ".docx"
-        p, _ = QFileDialog.getSaveFileName(self, "Save report",
+        cfg = self._selected_cfg()
+        gost = cfg.get("profile") == "gost_ru"
+        ext = ".docx" if (gost or self.rb_docx.isChecked()) else ".pdf"
+        p, _ = QFileDialog.getSaveFileName(self, "Сохранить отчёт" if gost else "Save report",
                                            str(self.out_dir / ("report" + ext)),
                                            f"Report (*{ext})")
         if not p:
             return
-        cfg = self._selected_cfg()
-        from datetime import datetime
-        meta = {"generated": datetime.now().isoformat(timespec="seconds")}
         try:
-            if ext == ".docx":
-                report_docx.render(self.last_payload["results"], self.last_payload["manifest"],
-                                   self.last_payload["checks"], cfg,
-                                   self.last_payload["figures"], meta, Path(p))
-            else:
-                report_pdf.render(self.last_payload["results"], self.last_payload["manifest"],
-                                  self.last_payload["checks"], cfg,
-                                  self.last_payload["figures"], meta, Path(p))
-            self.lbl_status.setText(f"report saved -> {p}")
-            QMessageBox.information(self, "femrep", f"Report saved:\n{p}")
+            out = self._render_to(Path(p), cfg)
+            self.lbl_status.setText(f"report saved -> {out}")
+            QMessageBox.information(self, "femrep", f"Report saved:\n{out}")
         except Exception as e:
             QMessageBox.critical(self, "femrep", f"Render failed:\n{e}\n{traceback.format_exc()[-600:]}")
 
@@ -367,7 +379,13 @@ class TemplateDialog(QDialog):
         right = QVBoxLayout()
         form_host = QWidget(); form = QFormLayout(form_host)
         self.f_name = QLineEdit()
-        form.addRow("Name", self.f_name)
+        form.addRow("Название / Name", self.f_name)
+        self.f_profile = QComboBox()
+        self._profiles = [("Стандартный (PDF/DOCX)", "default"),
+                          ("ГОСТ 7.32-2017 (DOCX, рус.)", "gost_ru")]
+        for label, _ in self._profiles:
+            self.f_profile.addItem(label)
+        form.addRow("Профиль / Profile", self.f_profile)
         self.brand_fields: dict[str, QLineEdit] = {}
         for key in templates_mod.DEFAULT_BRANDING:
             le = QLineEdit()
@@ -422,6 +440,9 @@ class TemplateDialog(QDialog):
     def _load_into_form(self, tpl: dict):
         tpl = templates_mod.validate(tpl)
         self.f_name.setText(tpl["name"])
+        prof_keys = [k for _, k in self._profiles]
+        self.f_profile.setCurrentIndex(prof_keys.index(tpl["profile"])
+                                       if tpl["profile"] in prof_keys else 0)
         for key, le in self.brand_fields.items():
             val = tpl["branding"].get(key)
             le.setText("" if val is None else str(val))
@@ -449,6 +470,7 @@ class TemplateDialog(QDialog):
                              "intro": self.sec_intro.get(key, "")})
         return {"femrep_template_version": templates_mod.TEMPLATE_VERSION,
                 "name": self.f_name.text().strip() or "Untitled",
+                "profile": self._profiles[self.f_profile.currentIndex()][1],
                 "branding": branding, "sections": sections}
 
     # --- section editing ---

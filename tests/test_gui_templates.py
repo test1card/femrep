@@ -71,3 +71,39 @@ def test_window_selected_cfg_overlays_project_template(app, tmp_path):
     win._refresh_templates(select="Two")
     cfg = win._selected_cfg()
     assert [s["key"] for s in cfg["sections"]] == ["summary", "results"]
+
+
+def test_dialog_profile_roundtrip(app, tmp_path):
+    from femrep import gui, templates
+    project = tmp_path / "proj"
+    templates.templates_dir(project).mkdir(parents=True)
+    dlg = gui.TemplateDialog(project)
+    tpl = templates.default_template("ГОСТ-шаблон")
+    tpl["profile"] = "gost_ru"
+    dlg._load_into_form(tpl)
+    assert dlg._collect()["profile"] == "gost_ru"
+
+
+def test_render_to_routes_gost_profile_to_russian_docx(app, tmp_path):
+    from docx import Document
+    from femrep import gui, templates
+    win = gui.FemrepWindow()
+    win.last_payload = {
+        "results": {"result_file": "000.f06", "result_sha256": "a",
+                    "primary_qoi": {"name": "temperature", "units": "K", "min": 300.0,
+                                    "max": 305.0, "hot_node": 1, "cold_node": 2},
+                    "qoi_catalog": [{"name": "temperature"}],
+                    "mesh": {"nodes": 10, "elements": 4, "element_types": {"tet": 4}},
+                    "convergence": {"converged": True, "substeps": 1, "note": "ок"}},
+        "manifest": {"analysis_type": "thermal", "units": "SI", "solver": "Nastran",
+                     "solver_version": "0.1", "deck_path": None},
+        "checks": {"claim": "", "gci": None,
+                   "gates": [{"gate": "units", "verdict": "pass", "note": ""}],
+                   "readiness": {"status": "issue_with_limitations", "summary": "", "items": []}},
+        "figures": {},
+    }
+    cfg = templates.to_config(dict(templates.default_template("g"), profile="gost_ru"))
+    out = win._render_to(tmp_path / "r.pdf", cfg)   # ask .pdf — must become .docx
+    assert out.suffix == ".docx" and out.exists()
+    text = "\n".join(p.text for p in Document(str(out)).paragraphs)
+    assert "РЕФЕРАТ" in text
