@@ -17,6 +17,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from . import govern, workflow
+from . import templates as _templates
 
 
 def main() -> int:
@@ -48,6 +49,8 @@ def main() -> int:
     ap.add_argument("--template", choices=sorted(workflow.TEMPLATES), default=None)
     ap.add_argument("--template-file", type=Path, default=None,
                     help="a saved .json report template (branding + section layout)")
+    ap.add_argument("--profile", choices=sorted(_templates.PROFILES), default=None,
+                    help="report profile: 'gost_ru' = ГОСТ 7.32-2017 Russian DOCX")
     ap.add_argument("--project", type=Path, default=None,
                     help="project folder created by femrep init")
     ap.add_argument("--run-name", default=None,
@@ -70,6 +73,7 @@ def main() -> int:
             config_path=args.config,
             template=args.template,
             template_file=args.template_file,
+            profile=args.profile,
             no_figures=args.no_figures,
             make_html=args.html,
             make_package=args.package,

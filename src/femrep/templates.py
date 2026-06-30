@@ -53,7 +53,18 @@ DEFAULT_BRANDING: dict = {
     "color_muted": "#868e96",
     "font": "Helvetica",
     "page_size": "A4",
+    # ГОСТ 7.32-2017 титульный лист (used only by the gost_ru profile)
+    "ministry": "",
+    "udc": "",
+    "city": "",
+    "year": "",
+    "report_type": "final",          # final | interim
+    "head_org_title": "",            # должность руководителя организации
+    "head_work_title": "",           # должность руководителя НИР
 }
+
+# Report profiles: the default English PDF/DOCX, or a fully-Russian ГОСТ 7.32 DOCX.
+PROFILES = ("default", "gost_ru")
 
 
 def default_template(name: str = "Default") -> dict:
@@ -61,6 +72,7 @@ def default_template(name: str = "Default") -> dict:
     return {
         "femrep_template_version": TEMPLATE_VERSION,
         "name": name,
+        "profile": "default",
         "branding": dict(DEFAULT_BRANDING),
         "sections": [{"key": k, "enabled": True, "intro": ""} for k, _ in SECTIONS],
     }
@@ -74,9 +86,11 @@ def validate(tpl: dict) -> dict:
     always complete and editable."""
     if not isinstance(tpl, dict):
         raise ValueError("template must be a JSON object")
+    profile = tpl.get("profile")
     out: dict = {
         "femrep_template_version": TEMPLATE_VERSION,
         "name": str(tpl.get("name") or "Untitled"),
+        "profile": profile if profile in PROFILES else "default",
         "branding": dict(DEFAULT_BRANDING),
     }
     branding = tpl.get("branding")
@@ -114,6 +128,7 @@ def to_config(tpl: dict) -> dict:
     tpl = validate(tpl)
     cfg = dict(tpl["branding"])
     cfg["template"] = tpl["name"]
+    cfg["profile"] = tpl["profile"]
     cfg["sections"] = [
         {"key": s["key"], "title": SECTION_TITLES[s["key"]], "intro": s.get("intro", "")}
         for s in tpl["sections"] if s["enabled"]

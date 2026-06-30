@@ -29,7 +29,7 @@ TEMPLATES = {
 
 
 def load_config(path: Path, template: str | None = None,
-                template_file: Path | None = None) -> dict:
+                template_file: Path | None = None, profile: str | None = None) -> dict:
     """Flat key:value config reader plus template overlays. A built-in named
     `template` overlays first; a saved `template_file` (custom GUI template) is
     overlaid last and wins — bringing its branding and section layout."""
@@ -59,6 +59,8 @@ def load_config(path: Path, template: str | None = None,
     if template_file:
         from . import templates as _templates
         cfg.update(_templates.to_config(_templates.load_path(Path(template_file))))
+    if profile:
+        cfg["profile"] = profile
     return cfg
 
 
@@ -100,7 +102,7 @@ def run_report(result_file: Path, *, out: Path, log: Path | None = None,
                mode: str = "ENGINEERING", gci_path: Path | None = None,
                deck: Path | None = None, config_path: Path | None = None,
                template: str | None = None, template_file: Path | None = None,
-               no_figures: bool = False,
+               profile: str | None = None, no_figures: bool = False,
                make_html: bool = False, make_package: bool = False,
                project: Path | None = None, run_name: str | None = None,
                supersedes: str | None = None, qoi: str | None = None) -> dict:
@@ -149,10 +151,17 @@ def run_report(result_file: Path, *, out: Path, log: Path | None = None,
         except Exception as e:
             print(f"[femrep] figures skipped: {e}", flush=True)
 
-    cfg = load_config(config_path, template, template_file)
+    cfg = load_config(config_path, template, template_file, profile)
     meta = {"generated": datetime.now().isoformat(timespec="seconds"),
             "config_path": str(config_path)}
-    if out.suffix.lower() == ".docx":
+    if cfg.get("profile") == "gost_ru":
+        # ГОСТ 7.32-2017: всегда .docx, на русском языке
+        from . import report_gost_docx
+        if out.suffix.lower() != ".docx":
+            out = out.with_suffix(".docx")
+            print(f"[femrep] профиль ГОСТ 7.32 — вывод в .docx: {out}", flush=True)
+        report_gost_docx.render(results, manifest, checks, cfg, figure_paths, meta, out)
+    elif out.suffix.lower() == ".docx":
         from . import report_docx
         report_docx.render(results, manifest, checks, cfg, figure_paths, meta, out)
     else:
@@ -329,6 +338,7 @@ def run_batch(batch_path: Path) -> list[dict]:
             config_path=Path(run["config"]) if run.get("config") else None,
             template=run.get("template"),
             template_file=Path(run["template_file"]) if run.get("template_file") else None,
+            profile=run.get("profile"),
             no_figures=bool(run.get("no_figures", False)),
             make_html=bool(run.get("html", True)),
             make_package=bool(run.get("package", True)),
