@@ -67,6 +67,11 @@ it fetches an isolated Python 3.11 just for femrep (your system Python is
 NOT changed), pins the compatible DPF 0.9, installs, and makes the icon.
 You do not need to install Python yourself for that path.
 
+If reading an Ansys .rst/.rth fails, double-click debug-ansys2021.bat
+(or drag the .rst onto it). It reports the Python/DPF versions, the
+installed Ansys, and whether the DPF server starts — with the real
+error — and saves it to femrep-ansys2021.log for support.
+
 ------------------------------------------------------------
  Getting help
 ------------------------------------------------------------

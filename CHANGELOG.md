@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.5.4
+
+**Ansys 2021/2022R1 diagnostics.**
+
+- New `femrep.diagnose` (`femrep diagnose [result.rst]` or
+  `python -m femrep.diagnose`): reports Python + ansys-dpf-core versions, the
+  installed Ansys (`AWP_ROOT*`), and — the real test — whether a local DPF server
+  starts, with the full traceback on failure and version-specific hints.
+- New `debug-ansys2021.bat`: runs the diagnostic against the installed env and
+  saves it to a log; drag a `.rst` onto it to also test reading.
+
 ## v0.5.3
 
 **Fix: GUI crashed silently at startup on old Ansys (lazy DPF import).**

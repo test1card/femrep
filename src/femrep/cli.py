@@ -21,10 +21,13 @@ from . import templates as _templates
 
 
 def main() -> int:
-    if len(sys.argv) > 1 and sys.argv[1] in {"doctor", "init", "batch", "gci"}:
+    if len(sys.argv) > 1 and sys.argv[1] in {"doctor", "diagnose", "init", "batch", "gci"}:
         cmd = sys.argv[1]
         if cmd == "doctor":
             return doctor()
+        if cmd == "diagnose":
+            from . import diagnose
+            return diagnose.main(sys.argv[2:])
         if cmd == "init":
             return _cmd_init(sys.argv[2:])
         if cmd == "batch":
