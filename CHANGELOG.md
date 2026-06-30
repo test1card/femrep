@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.5.0
+
+**Guided wizard GUI + Russian report in a real engineering register.**
+
+- Rebuilt the desktop GUI as a polished 4-step wizard (Результат → Проверка →
+  Шаблон → Экспорт), minimalist light theme. Step 1 is a universal attach zone
+  (drop/multi-select; each file auto-classified результат/журнал/GCI/расчётная
+  модель). Step 2 shows the femis gate verdicts in Russian as pastel badges.
+  Step 3 has a live «Содержание отчёта» panel with per-section availability.
+- GOST 7.32 Russian report: реферат / введение / заключение and section text
+  rewritten in the Russian academic technical register (subject acts not author,
+  density-as-ethics, no sales-pitch); fully Russian title page, units, solver line.
+- Bug fixes from a Codex + GLM 5.2 dual review: GUI `.op2`→`.f06` fallback, GOST
+  English title/solver-version leaks, optional (non-fatal) GUI figures, non-GCI
+  `.json` misclassification, structural-`.f06` analysis label, реферат table count.
+
 ## v0.4.0
 
 **ГОСТ 7.32-2017 — полностью русскоязычный отчёт (DOCX).**
