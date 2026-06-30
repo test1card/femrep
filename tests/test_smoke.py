@@ -203,6 +203,58 @@ def test_op2_backend_fails_loudly(tmp_path):
         raise AssertionError(".op2 backend must not return an empty report payload")
 
 
+def _import_ansys_dpf_backend():
+    """Import the DPF backend with ansys.dpf/numpy stubbed, so the pure-stdlib
+    file-sequence logic is testable on a machine without Ansys installed."""
+    import types
+
+    sys.modules.setdefault("numpy", types.ModuleType("numpy"))
+    ansys = sys.modules.setdefault("ansys", types.ModuleType("ansys"))
+    dpf_pkg = sys.modules.setdefault("ansys.dpf", types.ModuleType("ansys.dpf"))
+    core = sys.modules.setdefault("ansys.dpf.core", types.ModuleType("ansys.dpf.core"))
+    ansys.dpf = dpf_pkg
+    dpf_pkg.core = core
+    from femrep.backends import ansys_dpf
+    return ansys_dpf
+
+
+def test_rst_distributed_domains_not_expanded(tmp_path):
+    """Workbench dp0 distributed solve: file.rst sits beside file0.rst..fileN.rst
+    (per-domain files, NOT time steps). femrep must read file.rst as given, never
+    expand the domains into a bogus transient sequence."""
+    ansys_dpf = _import_ansys_dpf_backend()
+    for name in ("file.rst", "file0.rst", "file1.rst", "file2.rst"):
+        (tmp_path / name).write_bytes(b"x")
+
+    assert [p.name for p in ansys_dpf._sequence_files(tmp_path / "file.rst")] == ["file.rst"]
+    # even pointing straight at a domain file must not expand
+    assert [p.name for p in ansys_dpf._sequence_files(tmp_path / "file0.rst")] == ["file0.rst"]
+
+
+def test_rth_thermal_transient_sequence_still_expands(tmp_path):
+    """Thermal .rth transients genuinely split sets across file0.rth..fileN.rth;
+    that expansion must be preserved."""
+    ansys_dpf = _import_ansys_dpf_backend()
+    for name in ("file.rth", "file0.rth", "file1.rth", "file2.rth"):
+        (tmp_path / name).write_bytes(b"x")
+
+    expanded = [p.name for p in ansys_dpf._sequence_files(tmp_path / "file.rth")]
+    assert expanded == ["file0.rth", "file1.rth", "file2.rth"]
+    # a lone .rth with no siblings reads as itself
+    (tmp_path / "single.rth").write_bytes(b"x")
+    assert [p.name for p in ansys_dpf._sequence_files(tmp_path / "single.rth")] == ["single.rth"]
+
+
+def test_dpf_grpc_transport_defaults_to_insecure():
+    """Importing the DPF backend must pre-set an unsecured gRPC transport so a
+    local run never hits the 2026 R1 mutual-TLS cert requirement."""
+    import os
+
+    _import_ansys_dpf_backend()
+    assert os.environ.get("DPF_GRPC_MODE") == "insecure"
+    assert os.environ.get("DPF_DEFAULT_GRPC_MODE") == "insecure"
+
+
 def _tiny_f06(tmp_path: Path) -> Path:
     f06 = tmp_path / "tiny.f06"
     f06.write_text(

@@ -32,4 +32,8 @@ Thumbs.db
 
 # build tooling
 .build-venv/
+.test-venv/
 dist/
+
+# OMC orchestration state (not part of femrep)
+.omc/

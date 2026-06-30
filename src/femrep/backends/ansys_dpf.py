@@ -7,8 +7,21 @@ sequence (file0.rth..fileN.rth), whose real time axis comes from the .mntr monit
 """
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
+
+# DPF transport defaults for single-machine use. ansys-dpf-core >= 0.15 (shipped
+# with Ansys 2026 R1) defaults its gRPC channel to mutual TLS, which aborts with
+# "Certificate file not found: certs\ca.crt" when no certificates are
+# provisioned. femrep runs DPF locally against the user's own Ansys install:
+# DPF auto-selects the in-process server (no gRPC, no certs) when client/server
+# versions allow, and otherwise launches a local gRPC server itself. Force any
+# such gRPC channel to the unsecured mode so a single-machine run never needs
+# certs. setdefault keeps these overridable for users who deliberately connect
+# to a secured remote DPF server. Must be set before importing ansys.dpf.core.
+os.environ.setdefault("DPF_GRPC_MODE", "insecure")
+os.environ.setdefault("DPF_DEFAULT_GRPC_MODE", "insecure")
 
 import numpy as np
 from ansys.dpf import core as dpf
@@ -110,10 +123,20 @@ def primary_qoi(model, preferred: str | None = None) -> dict:
 
 
 def _sequence_files(result_file: Path) -> list[Path]:
-    """Detect a numbered transient sequence file0.rth..fileN.rth / <prefix>0..N.rst.
+    """Detect a numbered transient sequence file0.rth..fileN.rth.
+
+    Only Ansys THERMAL transients (.rth) split their time sets across separate
+    numbered files; a single consolidated .rst/.rth already holds all of its
+    sets internally. For .rst, numbered siblings (file0.rst, file1.rst, ...) are
+    DISTRIBUTED-SOLVE DOMAIN files, not time steps — e.g. a Workbench dp0 result
+    folder after a multi-core solve holds file.rst beside file0.rst..fileN.rst.
+    Expanding those domains as a "sequence" corrupts the result (and DPF chokes
+    on a lone domain file), so .rst is always read exactly as given.
 
     Returns the ordered list of set files, or [result_file] alone if no sequence.
     """
+    if result_file.suffix.lower() != ".rth":
+        return [result_file]
     stem = result_file.stem
     suffix = result_file.suffix
     # patterns: file0.rth, ring2_0.rth, frame3d0.rth — a trailing integer on the stem

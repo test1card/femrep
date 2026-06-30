@@ -114,6 +114,16 @@ angles) is demonstrated. Real ACP/`.rmed` data is wired when supplied.
 - **Convergence** is read from Ansys `.mntr` (substep history) or `.f06` output
   tables. The corpus is linear thermal — no Newton-Raphson residual history, and
   the claim phrasing says so honestly.
+- **Distributed `.rst`** — point femrep at the consolidated `file.rst` (e.g. in a
+  Workbench `..._files/dp0/.../MECH/` folder). The per-domain `file0.rst..fileN.rst`
+  written by a multi-core solve are *not* time steps; femrep reads the
+  consolidated file directly and never expands those domains. Numbered transient
+  sequences are an Ansys *thermal* (`.rth`) concept only.
+- **DPF transport** — femrep runs DPF locally against your own Ansys install and
+  forces an in-process / unsecured-gRPC channel (`DPF_GRPC_MODE=insecure`), so a
+  single-machine run never needs the mutual-TLS certificates that `ansys-dpf-core`
+  ≥ 0.15 (Ansys 2026 R1) require by default. Override the env var if you connect
+  to a secured remote DPF server.
 
 ## License
 
