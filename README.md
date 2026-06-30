@@ -52,9 +52,26 @@ femrep examples/tiny_thermal.f06 --out demo_report.pdf --html --package
 femrep gci examples/gci_points.csv --out demo_gci_runs.json --qoi demo_temperature
 femrep batch examples/runs.json
 
-# desktop GUI
+# custom report template (branding + section layout)
+femrep path/to/result.f06 --out report.pdf --template-file my_company.json
+
+# desktop GUI (build + reuse templates visually)
 femrep-gui
 ```
+
+## Report templates
+
+A **template** is a reusable report definition — branding / title block (logo,
+company, customer, document number, colours, fonts) plus the **section layout**
+(which of the nine sections appear, in what order, with optional per-section
+intro text). Templates are per-project JSON files under
+`<project>/templates/<name>.json`.
+
+Build and reuse them in the GUI: open a project, then **Manage templates…** to
+create one from scratch or **seed it from a result file**, tick/reorder
+sections, fill in your branding, and Save. Pick it from the **Template** dropdown
+before *Generate report*. From the CLI, pass `--template-file <name>.json`. With
+no template, the full nine-section report renders exactly as before.
 
 Both renderers (PDF via reportlab, DOCX via python-docx) emit the same content:
 cover, summary, readiness, model, meshing, composites/CFRP, solve +
