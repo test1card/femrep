@@ -190,6 +190,15 @@ def zaklyuchenie_text(results: dict, checks: dict) -> str:
     )
 
 
+def review_summary_ru(results: dict, checks: dict) -> str:
+    """One-line Russian summary for the GUI review pane (govern's claim is English)."""
+    name, units, rng = _qoi_phrase(results)
+    readiness = checks.get("readiness") or {}
+    st = readiness_status_ru(readiness.get("status", ""), "отчёт сформирован")
+    label = name[:1].upper() + name[1:] if name else "Величина"
+    return f"{label}: диапазон {rng}. {st}"
+
+
 def gate_note_ru(gate: dict, gci: dict | None) -> str:
     """Russian note per gate (we re-derive rather than reuse govern's English note)."""
     key, verdict = gate.get("gate"), gate.get("verdict")

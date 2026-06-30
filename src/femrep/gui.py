@@ -1,7 +1,8 @@
 """femrep.gui — PySide6 desktop app for the report generator.
 
-Single window: pick a result file (and optional log/deck/GCI),
-extract -> preview the contour + gate verdicts -> render PDF or DOCX.
+A polished 4-step wizard: (1) pick a result file (and optional log/deck/GCI),
+(2) review the QoI + femis gate verdicts, (3) choose a project template,
+(4) export a PDF / DOCX report.
 
 The pipeline (extract/govern/figures/render) runs in a QThread worker because
 DPF reads + pyvista rendering of 288MB+ files take 10–60s and must not freeze
@@ -18,19 +19,30 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QPixmap, QFont
 from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QFileDialog,
-                               QFormLayout, QHBoxLayout, QInputDialog, QLabel,
-                               QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
-                               QMessageBox, QProgressBar, QPushButton, QRadioButton,
-                               QScrollArea, QSplitter, QTextEdit, QVBoxLayout, QWidget)
+                               QFormLayout, QFrame, QHBoxLayout, QInputDialog,
+                               QLabel, QLineEdit, QListWidget, QListWidgetItem,
+                               QMainWindow, QMessageBox, QProgressBar, QPushButton,
+                               QRadioButton, QScrollArea, QSizePolicy, QStackedWidget,
+                               QTextEdit, QVBoxLayout, QWidget)
 
 from . import extract as extract_mod
 from . import govern, cli as cli_mod
 from . import report_pdf, report_docx
 from . import templates as templates_mod
 from . import workflow
+from . import gui_style
+from . import locale_ru
 
 MODES = govern.MODES
 HERE = Path(__file__).parent
+
+# femis gate verdict -> pastel badge property + Russian label
+_BADGE = {"pass": "ok", "not_done": "warn", "fail": "bad"}
+_VERDICT_RU = {"pass": "соответствует", "not_done": "не выполнено",
+               "fail": "не соответствует"}
+
+STEPS = [("Результат", "Result"), ("Проверка", "Check"),
+         ("Шаблон", "Template"), ("Экспорт", "Export")]
 
 
 class PipelineWorker(QThread):
@@ -82,125 +94,294 @@ class PipelineWorker(QThread):
             self.failed.emit(f"{type(e).__name__}: {e}\n{traceback.format_exc()[-800:]}")
 
 
+def _set_prop(w: QWidget, name: str, value) -> None:
+    """Set a dynamic property and re-apply QSS so selectors that key off it take."""
+    w.setProperty(name, value)
+    w.style().unpolish(w)
+    w.style().polish(w)
+
+
 class FemrepWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("femrep — femis-governed FEM report generator")
-        self.resize(1100, 760)
+        self.resize(1040, 720)
         self.worker: PipelineWorker | None = None
         self.last_payload: dict | None = None
         self.report_mode = "SIGNOFF"
         self.project: Path | None = None
+        self._step = 0
         self._build_ui()
+        self._set_step(0)
 
+    # ------------------------------------------------------------------ UI
     def _build_ui(self):
-        root = QWidget()
+        root = QWidget(); root.setObjectName("canvas")
         self.setCentralWidget(root)
-        outer = QVBoxLayout(root)
+        outer = QHBoxLayout(root); outer.setContentsMargins(0, 0, 0, 0); outer.setSpacing(0)
 
-        # --- input row ---
-        inp = QHBoxLayout()
-        self.btn_result = QPushButton("Pick result file…")
-        self.btn_result.clicked.connect(self._pick_result)
-        self.lbl_result = QLabel("no file selected")
-        self.lbl_result.setStyleSheet("color:#868e96;")
-        inp.addWidget(self.btn_result); inp.addWidget(self.lbl_result, 1)
-        outer.addLayout(inp)
+        outer.addWidget(self._build_rail())
 
-        # log / deck / gci (optional, compact)
-        opts = QHBoxLayout()
-        self.btn_log = QPushButton("log (.mntr/.out)…"); self.btn_log.clicked.connect(self._pick_log)
-        self.lbl_log = QLabel("—"); self.lbl_log.setStyleSheet("color:#868e96;")
-        self.btn_gci = QPushButton("gci_runs.json…"); self.btn_gci.clicked.connect(self._pick_gci)
-        self.lbl_gci = QLabel("—"); self.lbl_gci.setStyleSheet("color:#868e96;")
-        opts.addWidget(self.btn_log); opts.addWidget(self.lbl_log, 1)
-        opts.addWidget(self.btn_gci); opts.addWidget(self.lbl_gci, 1)
-        outer.addLayout(opts)
+        self.stack = QStackedWidget()
+        wrap = QWidget(); wl = QVBoxLayout(wrap); wl.setContentsMargins(28, 28, 28, 28)
+        wl.addWidget(self.stack)
+        outer.addWidget(wrap, 1)
 
-        # run controls
-        row = QHBoxLayout()
-        self.chk_figs = QRadioButton("with figures"); self.chk_figs.setChecked(True)
-        row.addWidget(self.chk_figs)
-        self.btn_run = QPushButton("Extract + govern"); self.btn_run.clicked.connect(self._run)
-        self.btn_run.setDefault(True)
-        row.addWidget(self.btn_run); row.addStretch()
-        outer.addLayout(row)
+        self.stack.addWidget(self._build_step1())
+        self.stack.addWidget(self._build_step2())
+        self.stack.addWidget(self._build_step3())
+        self.stack.addWidget(self._build_step4())
 
+    def _build_rail(self) -> QWidget:
+        rail = QWidget(); rail.setObjectName("rail"); rail.setFixedWidth(240)
+        lay = QVBoxLayout(rail); lay.setContentsMargins(24, 28, 18, 28); lay.setSpacing(6)
+
+        brand = QLabel("femrep"); brand.setObjectName("brand")
+        sub = QLabel("FEM-отчёты под femis"); sub.setObjectName("brandsub")
+        lay.addWidget(brand); lay.addWidget(sub)
+        lay.addSpacing(22)
+
+        self._rail_rows: list[tuple[QLabel, QLabel]] = []
+        for i, (ru, en) in enumerate(STEPS):
+            row = QWidget(); rl = QHBoxLayout(row); rl.setContentsMargins(0, 0, 0, 0); rl.setSpacing(10)
+            num = QLabel(str(i + 1)); num.setObjectName("num"); num.setAlignment(Qt.AlignCenter)
+            step = QLabel(f"{ru}"); step.setProperty("role", "step")
+            step.setToolTip(en)
+            rl.addWidget(num); rl.addWidget(step, 1)
+            lay.addWidget(row)
+            self._rail_rows.append((num, step))
+        lay.addStretch()
+
+        hint = QLabel("femis: ни один вывод не сильнее\nсвоей проверки.")
+        hint.setObjectName("brandsub"); hint.setWordWrap(True)
+        lay.addWidget(hint)
+        return rail
+
+    def _card(self, title_ru: str, title_en: str, subtitle: str):
+        """Build a card QFrame, return (card, body_layout) with header pre-filled."""
+        card = QFrame(); card.setObjectName("card")
+        v = QVBoxLayout(card); v.setContentsMargins(36, 32, 36, 32); v.setSpacing(14)
+        h = QLabel(f"{title_ru}"); h.setObjectName("h2"); h.setToolTip(title_en)
+        v.addWidget(h)
+        if subtitle:
+            s = QLabel(subtitle); s.setObjectName("sub"); s.setWordWrap(True)
+            v.addWidget(s)
+        return card, v
+
+    def _footer(self, back_cb, next_widget: QWidget, back_visible=True):
+        bar = QHBoxLayout()
+        back = QPushButton("Назад"); back.setObjectName("ghost")
+        back.clicked.connect(back_cb)
+        back.setVisible(back_visible)
+        bar.addWidget(back); bar.addStretch(); bar.addWidget(next_widget)
+        return bar
+
+    def _section(self, text: str) -> QLabel:
+        lbl = QLabel(text.upper()); lbl.setObjectName("section")
+        return lbl
+
+    # --- step 1: Result -------------------------------------------------
+    def _build_step1(self) -> QWidget:
+        card, v = self._card("Результат", "Result",
+                             "Выберите файл результатов решателя. Лог, GCI и расчётную "
+                             "колоду можно добавить по желанию.")
+        v.addSpacing(6)
+        v.addWidget(self._section("Файл результатов (Result)"))
+        self.drop = QLabel("Перетащите или нажмите, чтобы выбрать  ·  .rst / .rth / .f06 / .op2")
+        self.drop.setObjectName("drop"); self.drop.setAlignment(Qt.AlignCenter)
+        self.drop.setMinimumHeight(92)
+        self.drop.setCursor(Qt.PointingHandCursor)
+        self.drop.mousePressEvent = lambda e: self._pick_result()
+        v.addWidget(self.drop)
+        self.lbl_result = QLabel("файл не выбран"); self.lbl_result.setObjectName("sub")
+        v.addWidget(self.lbl_result)
+
+        v.addSpacing(8)
+        v.addWidget(self._section("Опционально (Optional)"))
+        opts = QHBoxLayout(); opts.setSpacing(10)
+        self.btn_log = QPushButton("Лог (.mntr/.out)…"); self.btn_log.setObjectName("opt")
+        self.btn_log.clicked.connect(self._pick_log)
+        self.btn_gci = QPushButton("GCI (.json)…"); self.btn_gci.setObjectName("opt")
+        self.btn_gci.clicked.connect(self._pick_gci)
+        self.btn_deck = QPushButton("Колода / Deck…"); self.btn_deck.setObjectName("opt")
+        self.btn_deck.clicked.connect(self._pick_deck)
+        opts.addWidget(self.btn_log); opts.addWidget(self.btn_gci); opts.addWidget(self.btn_deck)
+        opts.addStretch()
+        v.addLayout(opts)
+        self.lbl_opts = QLabel("лог — ·  GCI — ·  колода —"); self.lbl_opts.setObjectName("sub")
+        v.addWidget(self.lbl_opts)
+
+        self.chk_figs = QRadioButton("С иллюстрациями (with figures)"); self.chk_figs.setChecked(True)
+        v.addWidget(self.chk_figs)
+
+        v.addStretch()
         self.progress = QProgressBar(); self.progress.setVisible(False)
-        self.lbl_status = QLabel("")
-        outer.addWidget(self.progress); outer.addWidget(self.lbl_status)
+        v.addWidget(self.progress)
+        self.lbl_status = QLabel(""); self.lbl_status.setObjectName("sub")
+        v.addWidget(self.lbl_status)
 
-        # --- splitter: preview | status/gates ---
-        split = QSplitter(Qt.Horizontal)
+        self.btn_run = QPushButton("Извлечь и проверить →"); self.btn_run.setObjectName("cta")
+        self.btn_run.clicked.connect(self._run)
+        v.addLayout(self._footer(lambda: None, self.btn_run, back_visible=False))
+        return card
 
-        self.preview = QLabel("contour preview appears here after extract")
-        self.preview.setAlignment(Qt.AlignCenter)
-        self.preview.setStyleSheet("background:#f8f9fa; border:1px solid #dee2e6;")
-        self.preview.setMinimumWidth(420)
-        scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setWidget(self.preview)
-        split.addWidget(scroll)
+    # --- step 2: Check --------------------------------------------------
+    def _build_step2(self) -> QWidget:
+        card, v = self._card("Проверка", "Check",
+                             "Результаты извлечены. Проверьте величину интереса и вердикты "
+                             "проверок femis перед выпуском отчёта.")
+        body = QHBoxLayout(); body.setSpacing(20)
 
-        self.txt_status = QTextEdit(); self.txt_status.setReadOnly(True)
-        self.txt_status.setFont(QFont("Consolas", 9))
-        split.addWidget(self.txt_status)
-        split.setSizes([560, 480])
-        outer.addWidget(split, 1)
+        left = QVBoxLayout(); left.setSpacing(10)
+        left.addWidget(self._section("Контур (Contour)"))
+        self.preview = QLabel("предпросмотр контура появится после извлечения")
+        self.preview.setObjectName("drop"); self.preview.setAlignment(Qt.AlignCenter)
+        self.preview.setMinimumSize(360, 280)
+        self.preview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        left.addWidget(self.preview, 1)
+        body.addLayout(left, 1)
 
-        # --- template row: project + report template ---
-        tr = QHBoxLayout()
-        self.btn_project = QPushButton("Project…")
-        self.btn_project.clicked.connect(self._pick_project)
+        right = QVBoxLayout(); right.setSpacing(8)
+        right.addWidget(self._section("Сводка QoI (Summary)"))
+        self.lbl_qoi = QLabel("—"); self.lbl_qoi.setWordWrap(True)
+        right.addWidget(self.lbl_qoi)
+        right.addSpacing(6)
+        right.addWidget(self._section("Проверки femis (Gates)"))
+        self.gates_host = QWidget()
+        self.gates_lay = QVBoxLayout(self.gates_host)
+        self.gates_lay.setContentsMargins(0, 0, 0, 0); self.gates_lay.setSpacing(6)
+        gscroll = QScrollArea(); gscroll.setWidgetResizable(True); gscroll.setWidget(self.gates_host)
+        gscroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        right.addWidget(gscroll, 1)
+        right.addWidget(self._section("Утверждение femis (Claim)"))
+        self.lbl_claim = QLabel("—"); self.lbl_claim.setWordWrap(True); self.lbl_claim.setObjectName("sub")
+        right.addWidget(self.lbl_claim)
+        body.addLayout(right, 1)
+
+        v.addLayout(body, 1)
+
+        self.btn_review = QPushButton("Открыть HTML-обзор"); self.btn_review.setObjectName("opt")
+        self.btn_review.clicked.connect(self._open_review); self.btn_review.setEnabled(False)
+        nxt = QPushButton("Далее →"); nxt.setObjectName("cta")
+        nxt.clicked.connect(lambda: self._set_step(2))
+        foot = self._footer(lambda: self._set_step(0), nxt)
+        foot.insertWidget(1, self.btn_review)
+        v.addLayout(foot)
+        return card
+
+    # --- step 3: Template ----------------------------------------------
+    def _build_step3(self) -> QWidget:
+        card, v = self._card("Шаблон", "Template",
+                             "Выберите проект и шаблон оформления. Шаблоны хранят брендинг, "
+                             "набор разделов и профиль (например, ГОСТ).")
+        v.addSpacing(6)
+        v.addWidget(self._section("Проект (Project)"))
+        pr = QHBoxLayout(); pr.setSpacing(10)
+        self.btn_project = QPushButton("Открыть / создать проект…"); self.btn_project.setObjectName("opt")
         self.btn_project.setToolTip("Open or create a femrep project folder that holds your templates")
-        self.lbl_project = QLabel("(no project — built-in layout)")
-        self.lbl_project.setStyleSheet("color:#868e96;")
+        self.btn_project.clicked.connect(self._pick_project)
+        pr.addWidget(self.btn_project)
+        self.lbl_project = QLabel("проект не выбран — встроенная разметка"); self.lbl_project.setObjectName("sub")
+        pr.addWidget(self.lbl_project, 1)
+        v.addLayout(pr)
+
+        v.addSpacing(8)
+        v.addWidget(self._section("Шаблон оформления (Template)"))
         self.cmb_template = QComboBox()
         self.cmb_template.addItem("Built-in default")
-        self.btn_manage = QPushButton("Manage templates…")
-        self.btn_manage.clicked.connect(self._manage_templates)
-        self.btn_manage.setEnabled(False)
-        tr.addWidget(self.btn_project); tr.addWidget(self.lbl_project, 1)
-        tr.addWidget(QLabel("Template:")); tr.addWidget(self.cmb_template, 1)
-        tr.addWidget(self.btn_manage)
-        outer.addLayout(tr)
+        v.addWidget(self.cmb_template)
 
-        # --- render row ---
-        rr = QHBoxLayout()
+        self.btn_manage = QPushButton("Управление шаблонами…"); self.btn_manage.setObjectName("opt")
+        self.btn_manage.clicked.connect(self._manage_templates); self.btn_manage.setEnabled(False)
+        mr = QHBoxLayout(); mr.addWidget(self.btn_manage); mr.addStretch()
+        v.addLayout(mr)
+
+        v.addStretch()
+        nxt = QPushButton("Далее →"); nxt.setObjectName("cta")
+        nxt.clicked.connect(self._goto_export)
+        v.addLayout(self._footer(lambda: self._set_step(1), nxt))
+        return card
+
+    # --- step 4: Export -------------------------------------------------
+    def _build_step4(self) -> QWidget:
+        card, v = self._card("Экспорт", "Export",
+                             "Сводка форматирования. Нажмите, чтобы сгенерировать итоговый отчёт.")
+        v.addSpacing(6)
+        v.addWidget(self._section("Сводка (Summary)"))
+        self.lbl_export = QLabel("—"); self.lbl_export.setWordWrap(True)
+        v.addWidget(self.lbl_export)
+
+        v.addSpacing(8)
+        v.addWidget(self._section("Формат (Format)"))
+        fr = QHBoxLayout()
         self.rb_pdf = QRadioButton("PDF"); self.rb_pdf.setChecked(True)
         self.rb_docx = QRadioButton("DOCX")
-        rr.addWidget(QLabel("Render:")); rr.addWidget(self.rb_pdf); rr.addWidget(self.rb_docx)
-        self.btn_render = QPushButton("Generate report"); self.btn_render.clicked.connect(self._render)
-        self.btn_render.setEnabled(False)
-        self.btn_review = QPushButton("Open review"); self.btn_review.clicked.connect(self._open_review)
-        self.btn_review.setEnabled(False)
-        rr.addStretch(); rr.addWidget(self.btn_review); rr.addWidget(self.btn_render)
-        outer.addLayout(rr)
+        fr.addWidget(self.rb_pdf); fr.addWidget(self.rb_docx); fr.addStretch()
+        v.addLayout(fr)
+        self.lbl_gost = QLabel(""); self.lbl_gost.setObjectName("sub"); self.lbl_gost.setWordWrap(True)
+        v.addWidget(self.lbl_gost)
 
-    # --- pickers ---
+        v.addStretch()
+        self.btn_render = QPushButton("Сгенерировать отчёт"); self.btn_render.setObjectName("cta")
+        self.btn_render.clicked.connect(self._render)
+        v.addLayout(self._footer(lambda: self._set_step(2), self.btn_render))
+        return card
+
+    # ------------------------------------------------------------- navigation
+    def _set_step(self, idx: int):
+        self._step = idx
+        self.stack.setCurrentIndex(idx)
+        for i, (num, step) in enumerate(self._rail_rows):
+            active = (i == idx)
+            done = (i < idx)
+            _set_prop(num, "active", active)
+            _set_prop(num, "done", done and not active)
+            _set_prop(step, "active", active)
+        if idx == 3:
+            self._refresh_export_summary()
+
+    # ------------------------------------------------------------- pickers
     def _pick_result(self):
-        p, _ = QFileDialog.getOpenFileName(self, "Result file", "",
+        p, _ = QFileDialog.getOpenFileName(self, "Файл результатов / Result file", "",
                                            "Results (*.rst *.rth *.f06 *.op2);;All (*.*)")
         if p:
-            self.result_file = Path(p); self.lbl_result.setText(p); self.lbl_result.setStyleSheet("")
+            self.result_file = Path(p)
+            self.drop.setText(Path(p).name)
+            self.lbl_result.setText(p)
 
     def _pick_log(self):
-        p, _ = QFileDialog.getOpenFileName(self, "Solve log", "",
+        p, _ = QFileDialog.getOpenFileName(self, "Лог решателя / Solve log", "",
                                            "Logs (*.mntr *.out *.log *.f06);;All (*.*)")
         if p:
-            self.log_file = Path(p); self.lbl_log.setText(Path(p).name)
+            self.log_file = Path(p); self._refresh_opts()
 
     def _pick_gci(self):
         p, _ = QFileDialog.getOpenFileName(self, "GCI runs", "", "JSON (*.json)")
         if p:
-            self.gci_file = Path(p); self.lbl_gci.setText(Path(p).name)
+            self.gci_file = Path(p); self._refresh_opts()
 
-    # --- project / templates ---
+    def _pick_deck(self):
+        p, _ = QFileDialog.getOpenFileName(self, "Расчётная колода / Deck", "", "All (*.*)")
+        if p:
+            self.deck_file = Path(p); self._refresh_opts()
+
+    def _refresh_opts(self):
+        log = getattr(self, "log_file", None)
+        gci = getattr(self, "gci_file", None)
+        deck = getattr(self, "deck_file", None)
+        self.lbl_opts.setText(
+            f"лог {log.name if log else '—'} ·  "
+            f"GCI {gci.name if gci else '—'} ·  "
+            f"колода {deck.name if deck else '—'}")
+
+    # ------------------------------------------------------------- project / templates
     def _pick_project(self):
         d = QFileDialog.getExistingDirectory(self, "Open or create a femrep project folder")
         if not d:
             return
         self.project = Path(d)
         templates_mod.templates_dir(self.project).mkdir(parents=True, exist_ok=True)
-        self.lbl_project.setText(str(self.project)); self.lbl_project.setStyleSheet("")
+        self.lbl_project.setText(str(self.project))
         self.btn_manage.setEnabled(True)
         self._refresh_templates()
 
@@ -237,18 +418,18 @@ class FemrepWindow(QMainWindow):
                 QMessageBox.warning(self, "femrep", f"Could not load template {name!r}: {e}")
         return cfg
 
-    # --- run ---
+    # ------------------------------------------------------------- run pipeline
     def _run(self):
         if not hasattr(self, "result_file"):
-            QMessageBox.warning(self, "femrep", "Pick a result file first.")
+            QMessageBox.warning(self, "femrep", "Сначала выберите файл результатов.")
             return
         self.out_dir = Path.cwd() / "femrep_out" / self.result_file.stem
         self.out_dir.mkdir(parents=True, exist_ok=True)
         self.btn_run.setEnabled(False); self.progress.setVisible(True); self.progress.setRange(0, 0)
-        self.lbl_status.setText("running…"); self.txt_status.clear()
+        self.lbl_status.setText("выполняется…")
         self.worker = PipelineWorker(
             self.result_file, self.report_mode,
-            getattr(self, "log_file", None), None,
+            getattr(self, "log_file", None), getattr(self, "deck_file", None),
             getattr(self, "gci_file", None), self.out_dir, self.chk_figs.isChecked())
         self.worker.progress.connect(self._on_progress)
         self.worker.finished_ok.connect(self._on_done)
@@ -261,49 +442,94 @@ class FemrepWindow(QMainWindow):
     def _on_done(self, payload):
         self.last_payload = payload
         self.progress.setVisible(False); self.btn_run.setEnabled(True)
-        self.btn_render.setEnabled(True)
-        self.btn_review.setEnabled(bool(payload.get("review_html")))
-        # preview contour
-        figs = payload["figures"]
-        cp = figs.get("contour_views") or figs.get("contour")
-        if cp and Path(cp).exists():
-            pix = QPixmap(str(cp))
-            if not pix.isNull():
-                self.preview.setPixmap(pix.scaledToWidth(540, Qt.SmoothTransformation))
-        else:
-            self.preview.setText("no contour (e.g. .f06 has no geometry) — see time-history in the report")
-        # gate status pane
-        self._render_status(payload)
-
-    def _render_status(self, payload):
-        checks = payload["checks"]; results = payload["results"]; manifest = payload["manifest"]
-        q = results["primary_qoi"]
-        lines = [f"<b>{manifest['solver']} {manifest.get('solver_version','')}</b>",
-                 f"<b>QoI:</b> {q['name']} = {q['min']} .. {q['max']} {q['units']}",
-                 f"<b>Report:</b> {checks.get('readiness', {}).get('summary', 'issued engineering report')}", "",
-                 "<b>Gates (femis):</b>"]
-        for g in checks["gates"]:
-            color = {"pass": "#2b8a3e", "fail": "#c92a2a", "not_done": "#868e96"}[g["verdict"]]
-            sym = {"pass": "✓", "fail": "✗", "not_done": "—"}[g["verdict"]]
-            lines.append(f"<font color='{color}'><b>{sym} {g['gate']}</b></font> — {g['note']}")
-        lines += ["", "<b>Claim:</b>", checks["claim"]]
-        if checks.get("gci"):
-            gi = checks["gci"]
-            lines += ["", f"<b>GCI:</b> fine {gi['gci_fine_pct']:.3f}%, R {gi['convergence_ratio_R']:.3f}, "
-                          f"p {gi['observed_order_p']:.2f}", gi["verdict"]]
-        self.txt_status.setHtml("<br>".join(lines))
-        self.lbl_status.setText("done — review gates, then Generate report")
+        self.lbl_status.setText("готово")
+        self._populate_check(payload)
+        self._set_step(1)
 
     def _on_fail(self, msg):
         self.progress.setVisible(False); self.btn_run.setEnabled(True)
-        self.lbl_status.setText("FAILED")
-        self.txt_status.setPlainText(msg)
+        self.lbl_status.setText("ОШИБКА")
+        QMessageBox.critical(self, "femrep", msg)
 
     def _open_review(self):
         if self.last_payload and self.last_payload.get("review_html"):
             webbrowser.open(Path(self.last_payload["review_html"]).resolve().as_uri())
 
-    # --- render ---
+    # ------------------------------------------------------------- check view
+    def _populate_check(self, payload):
+        checks = payload["checks"]; results = payload["results"]; manifest = payload["manifest"]
+        figs = payload.get("figures") or {}
+
+        cp = figs.get("contour_views") or figs.get("contour")
+        if cp and Path(cp).exists():
+            pix = QPixmap(str(cp))
+            if not pix.isNull():
+                self.preview.setPixmap(pix.scaledToWidth(440, Qt.SmoothTransformation))
+            else:
+                self.preview.setText("контур недоступен")
+        else:
+            self.preview.setText("контур недоступен — см. историю по времени в отчёте")
+
+        q = results["primary_qoi"]
+        readiness = checks.get("readiness") or {}
+        solver = (manifest.get("solver", "").split() or ["—"])[0].capitalize()
+        analysis = locale_ru.analysis_ru(manifest.get("analysis_type", ""))
+        self.lbl_qoi.setText(
+            f"<b>{solver}</b> · {analysis} анализ<br>"
+            f"{locale_ru.qoi_ru(q['name'])} = {q['min']} … {q['max']} {locale_ru.units_ru(q['units'])}<br>"
+            f"<span style='color:{gui_style.MUTED}'>"
+            f"{locale_ru.readiness_status_ru(readiness.get('status', ''), 'инженерный отчёт')}</span>")
+
+        # clear & rebuild gate badges
+        while self.gates_lay.count():
+            item = self.gates_lay.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+        for g in checks["gates"]:
+            row = QWidget(); rl = QHBoxLayout(row); rl.setContentsMargins(0, 0, 0, 0); rl.setSpacing(8)
+            badge = QLabel(_VERDICT_RU.get(g["verdict"], g["verdict"]))
+            badge.setAlignment(Qt.AlignCenter)
+            _set_prop(badge, "badge", _BADGE.get(g["verdict"], "warn"))
+            # fixed-width cell aligns the name column; the pill sizes to its text
+            cell = QWidget(); cell.setFixedWidth(150)
+            cl = QHBoxLayout(cell); cl.setContentsMargins(0, 0, 0, 0); cl.setSpacing(0)
+            cl.addWidget(badge); cl.addStretch()
+            name = QLabel(locale_ru.GATE_NAMES.get(g["gate"], g["gate"]))
+            name.setWordWrap(True)
+            rl.addWidget(cell); rl.addWidget(name, 1)
+            note = g.get("note")
+            if note:
+                row.setToolTip(note)
+            self.gates_lay.addWidget(row)
+        self.gates_lay.addStretch()
+
+        self.lbl_claim.setText(locale_ru.review_summary_ru(results, checks))
+        self.btn_review.setEnabled(bool(payload.get("review_html")))
+
+    # ------------------------------------------------------------- export view
+    def _goto_export(self):
+        self._set_step(3)
+
+    def _refresh_export_summary(self):
+        cfg = self._selected_cfg()
+        gost = cfg.get("profile") == "gost_ru"
+        name = self.cmb_template.currentText()
+        proj = str(self.project) if self.project else "встроенная разметка"
+        self.lbl_export.setText(
+            f"<b>Проект:</b> {proj}<br>"
+            f"<b>Шаблон:</b> {name}<br>"
+            f"<b>Профиль:</b> {cfg.get('profile', 'default')}")
+        if gost:
+            self.lbl_gost.setText("Профиль ГОСТ — отчёт будет сохранён как русский .docx "
+                                  "(формат выбран автоматически).")
+            self.rb_docx.setChecked(True)
+            self.rb_pdf.setEnabled(False); self.rb_docx.setEnabled(False)
+        else:
+            self.lbl_gost.setText("")
+            self.rb_pdf.setEnabled(True); self.rb_docx.setEnabled(True)
+
+    # ------------------------------------------------------------- render
     def _render_to(self, path: Path, cfg: dict) -> Path:
         """Render the last payload to `path`, routing by the cfg's profile. The
         gost_ru profile always emits a Russian .docx. Dialog-free so it is testable."""
@@ -326,19 +552,20 @@ class FemrepWindow(QMainWindow):
 
     def _render(self):
         if not self.last_payload:
+            QMessageBox.warning(self, "femrep", "Сначала извлеките результаты (шаг 1).")
             return
         cfg = self._selected_cfg()
         gost = cfg.get("profile") == "gost_ru"
         ext = ".docx" if (gost or self.rb_docx.isChecked()) else ".pdf"
+        base = getattr(self, "out_dir", Path.cwd())
         p, _ = QFileDialog.getSaveFileName(self, "Сохранить отчёт" if gost else "Save report",
-                                           str(self.out_dir / ("report" + ext)),
+                                           str(base / ("report" + ext)),
                                            f"Report (*{ext})")
         if not p:
             return
         try:
             out = self._render_to(Path(p), cfg)
-            self.lbl_status.setText(f"report saved -> {out}")
-            QMessageBox.information(self, "femrep", f"Report saved:\n{out}")
+            QMessageBox.information(self, "femrep", f"Отчёт сохранён:\n{out}")
         except Exception as e:
             QMessageBox.critical(self, "femrep", f"Render failed:\n{e}\n{traceback.format_exc()[-600:]}")
 
@@ -547,6 +774,7 @@ class TemplateDialog(QDialog):
 def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("femrep")
+    app.setStyleSheet(gui_style.QSS)
     win = FemrepWindow()
     win.show()
     return app.exec()
