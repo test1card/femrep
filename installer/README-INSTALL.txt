@@ -59,12 +59,13 @@ your Python or your Ansys installation.
 Nastran .f06 files work on any setup. Ansys .rst/.rth files read
 through DPF, which is strict about versions:
 
-  Ansys 2022 R2 and newer ... Python 3.10-3.12, latest DPF (default)
-  Ansys 2021 R1/R2, 2022 R1 . Python 3.10 or 3.11 ONLY, DPF 0.9
+  Ansys 2022 R2 and newer ... double-click install.bat
+  Ansys 2021 R1/R2, 2022 R1 . double-click install-ansys2021.bat
 
-install.bat auto-detects an old Ansys (AWP_ROOT212 etc.) and pins the
-compatible DPF automatically. For 2021/2022R1 you MUST install Python
-3.10 or 3.11 first (3.12+ will not work with that DPF).
+For Ansys 2021/2022R1, use install-ansys2021.bat. It is fully automatic:
+it fetches an isolated Python 3.11 just for femrep (your system Python is
+NOT changed), pins the compatible DPF 0.9, installs, and makes the icon.
+You do not need to install Python yourself for that path.
 
 ------------------------------------------------------------
  Getting help

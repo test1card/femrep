@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.5.2
+
+**One-click Ansys 2021/2022R1 installer — gets its own Python 3.11.**
+
+- New `install-ansys2021.bat`: fully automatic for legacy Ansys. It obtains an
+  isolated Python 3.11 just for femrep (via the `py` launcher if present, else
+  `uv` downloads a standalone build — the system Python is untouched), pins
+  `ansys-dpf-core==0.9.0`, installs, and makes the desktop shortcut. No manual
+  Python install needed.
+
 ## v0.5.1
 
 **Ansys 2021 R1/R2 & 2022 R1 support (DPF v4.0 / LegacyGrpc).**
