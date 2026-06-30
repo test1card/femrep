@@ -17,14 +17,16 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QPixmap, QFont
-from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog, QHBoxLayout,
-                               QLabel, QLineEdit, QMainWindow, QMessageBox,
-                               QProgressBar, QPushButton, QRadioButton, QScrollArea,
-                               QSplitter, QTextEdit, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QFileDialog,
+                               QFormLayout, QHBoxLayout, QInputDialog, QLabel,
+                               QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
+                               QMessageBox, QProgressBar, QPushButton, QRadioButton,
+                               QScrollArea, QSplitter, QTextEdit, QVBoxLayout, QWidget)
 
 from . import extract as extract_mod
 from . import govern, cli as cli_mod
 from . import report_pdf, report_docx
+from . import templates as templates_mod
 from . import workflow
 
 MODES = govern.MODES
@@ -88,6 +90,7 @@ class FemrepWindow(QMainWindow):
         self.worker: PipelineWorker | None = None
         self.last_payload: dict | None = None
         self.report_mode = "SIGNOFF"
+        self.project: Path | None = None
         self._build_ui()
 
     def _build_ui(self):
@@ -143,6 +146,23 @@ class FemrepWindow(QMainWindow):
         split.setSizes([560, 480])
         outer.addWidget(split, 1)
 
+        # --- template row: project + report template ---
+        tr = QHBoxLayout()
+        self.btn_project = QPushButton("Project…")
+        self.btn_project.clicked.connect(self._pick_project)
+        self.btn_project.setToolTip("Open or create a femrep project folder that holds your templates")
+        self.lbl_project = QLabel("(no project — built-in layout)")
+        self.lbl_project.setStyleSheet("color:#868e96;")
+        self.cmb_template = QComboBox()
+        self.cmb_template.addItem("Built-in default")
+        self.btn_manage = QPushButton("Manage templates…")
+        self.btn_manage.clicked.connect(self._manage_templates)
+        self.btn_manage.setEnabled(False)
+        tr.addWidget(self.btn_project); tr.addWidget(self.lbl_project, 1)
+        tr.addWidget(QLabel("Template:")); tr.addWidget(self.cmb_template, 1)
+        tr.addWidget(self.btn_manage)
+        outer.addLayout(tr)
+
         # --- render row ---
         rr = QHBoxLayout()
         self.rb_pdf = QRadioButton("PDF"); self.rb_pdf.setChecked(True)
@@ -172,6 +192,50 @@ class FemrepWindow(QMainWindow):
         p, _ = QFileDialog.getOpenFileName(self, "GCI runs", "", "JSON (*.json)")
         if p:
             self.gci_file = Path(p); self.lbl_gci.setText(Path(p).name)
+
+    # --- project / templates ---
+    def _pick_project(self):
+        d = QFileDialog.getExistingDirectory(self, "Open or create a femrep project folder")
+        if not d:
+            return
+        self.project = Path(d)
+        templates_mod.templates_dir(self.project).mkdir(parents=True, exist_ok=True)
+        self.lbl_project.setText(str(self.project)); self.lbl_project.setStyleSheet("")
+        self.btn_manage.setEnabled(True)
+        self._refresh_templates()
+
+    def _refresh_templates(self, select: str | None = None):
+        self.cmb_template.blockSignals(True)
+        self.cmb_template.clear()
+        self.cmb_template.addItem("Built-in default")
+        if self.project:
+            for name in templates_mod.list_templates(self.project):
+                self.cmb_template.addItem(name)
+        if select:
+            i = self.cmb_template.findText(select)
+            if i >= 0:
+                self.cmb_template.setCurrentIndex(i)
+        self.cmb_template.blockSignals(False)
+
+    def _manage_templates(self):
+        if not self.project:
+            QMessageBox.information(self, "femrep", "Open a project first to store templates.")
+            return
+        dlg = TemplateDialog(self.project, self.last_payload, self)
+        dlg.exec()
+        self._refresh_templates(select=dlg.saved_name)
+
+    def _selected_cfg(self):
+        """Base config.yaml, overlaid with the selected project template (if any)."""
+        cfg = cli_mod._load_config(HERE / "config.yaml")
+        name = self.cmb_template.currentText()
+        if self.project and name and name != "Built-in default":
+            try:
+                tpl = templates_mod.load_template(self.project, name)
+                cfg.update(templates_mod.to_config(tpl))
+            except (FileNotFoundError, ValueError) as e:
+                QMessageBox.warning(self, "femrep", f"Could not load template {name!r}: {e}")
+        return cfg
 
     # --- run ---
     def _run(self):
@@ -249,7 +313,7 @@ class FemrepWindow(QMainWindow):
                                            f"Report (*{ext})")
         if not p:
             return
-        cfg = cli_mod._load_config(HERE / "config.yaml")
+        cfg = self._selected_cfg()
         from datetime import datetime
         meta = {"generated": datetime.now().isoformat(timespec="seconds")}
         try:
@@ -265,6 +329,197 @@ class FemrepWindow(QMainWindow):
             QMessageBox.information(self, "femrep", f"Report saved:\n{p}")
         except Exception as e:
             QMessageBox.critical(self, "femrep", f"Render failed:\n{e}\n{traceback.format_exc()[-600:]}")
+
+
+class TemplateDialog(QDialog):
+    """Create / edit / save per-project report templates: branding fields + a
+    checkable, reorderable section list with per-section intro text. All logic
+    lives in femrep.templates; this is a thin editor over it."""
+
+    def __init__(self, project: Path, last_payload: dict | None = None, parent=None):
+        super().__init__(parent)
+        self.project = project
+        self.last_payload = last_payload
+        self.saved_name: str | None = None
+        self.sec_intro: dict[str, str] = {}
+        self.setWindowTitle("femrep — report templates")
+        self.resize(820, 620)
+        self._build()
+        self._reload_list()
+
+    def _build(self):
+        outer = QHBoxLayout(self)
+
+        # left: template list + actions
+        left = QVBoxLayout()
+        self.lst = QListWidget()
+        self.lst.currentTextChanged.connect(self._on_pick)
+        left.addWidget(QLabel("Templates in this project:"))
+        left.addWidget(self.lst, 1)
+        for label, slot in [("New blank", self._new_blank),
+                            ("New from result…", self._new_from_result),
+                            ("Duplicate", self._duplicate),
+                            ("Delete", self._delete)]:
+            b = QPushButton(label); b.clicked.connect(slot); left.addWidget(b)
+        outer.addLayout(left, 1)
+
+        # right: edit form
+        right = QVBoxLayout()
+        form_host = QWidget(); form = QFormLayout(form_host)
+        self.f_name = QLineEdit()
+        form.addRow("Name", self.f_name)
+        self.brand_fields: dict[str, QLineEdit] = {}
+        for key in templates_mod.DEFAULT_BRANDING:
+            le = QLineEdit()
+            self.brand_fields[key] = le
+            if key == "logo":
+                row = QHBoxLayout(); row.addWidget(le, 1)
+                browse = QPushButton("…"); browse.setFixedWidth(28)
+                browse.clicked.connect(self._pick_logo); row.addWidget(browse)
+                host = QWidget(); host.setLayout(row); form.addRow(key, host)
+            else:
+                form.addRow(key, le)
+        scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setWidget(form_host)
+        right.addWidget(QLabel("Branding / title block:")); right.addWidget(scroll, 2)
+
+        right.addWidget(QLabel("Sections (tick to include, drag-free reorder with ↑/↓):"))
+        self.lst_sec = QListWidget()
+        self.lst_sec.currentRowChanged.connect(self._on_section_pick)
+        right.addWidget(self.lst_sec, 2)
+        secbtns = QHBoxLayout()
+        for label, slot in [("↑", lambda: self._move_section(-1)),
+                            ("↓", lambda: self._move_section(1))]:
+            b = QPushButton(label); b.setFixedWidth(36); b.clicked.connect(slot); secbtns.addWidget(b)
+        secbtns.addWidget(QLabel("Intro:"))
+        self.f_intro = QLineEdit(); self.f_intro.setPlaceholderText("optional text under this section heading")
+        self.f_intro.textEdited.connect(self._on_intro_edit)
+        secbtns.addWidget(self.f_intro, 1)
+        right.addLayout(secbtns)
+
+        save = QPushButton("Save template"); save.clicked.connect(self._save)
+        right.addWidget(save)
+        outer.addLayout(right, 2)
+
+    # --- list handling ---
+    def _reload_list(self, select: str | None = None):
+        self.lst.blockSignals(True)
+        self.lst.clear()
+        self.lst.addItems(templates_mod.list_templates(self.project))
+        self.lst.blockSignals(False)
+        if select:
+            items = self.lst.findItems(select, Qt.MatchExactly)
+            if items:
+                self.lst.setCurrentItem(items[0])
+
+    def _on_pick(self, name: str):
+        if name:
+            try:
+                self._load_into_form(templates_mod.load_template(self.project, name))
+            except (FileNotFoundError, ValueError):
+                pass
+
+    # --- form <-> template ---
+    def _load_into_form(self, tpl: dict):
+        tpl = templates_mod.validate(tpl)
+        self.f_name.setText(tpl["name"])
+        for key, le in self.brand_fields.items():
+            val = tpl["branding"].get(key)
+            le.setText("" if val is None else str(val))
+        self.sec_intro = {s["key"]: s.get("intro", "") for s in tpl["sections"]}
+        self.lst_sec.clear()
+        for s in tpl["sections"]:
+            item = QListWidgetItem(templates_mod.SECTION_TITLES[s["key"]])
+            item.setData(Qt.UserRole, s["key"])
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked if s["enabled"] else Qt.Unchecked)
+            self.lst_sec.addItem(item)
+        if self.lst_sec.count():
+            self.lst_sec.setCurrentRow(0)
+
+    def _collect(self) -> dict:
+        branding = {}
+        for key, le in self.brand_fields.items():
+            text = le.text().strip()
+            branding[key] = (None if (key == "logo" and not text) else text)
+        sections = []
+        for i in range(self.lst_sec.count()):
+            item = self.lst_sec.item(i)
+            key = item.data(Qt.UserRole)
+            sections.append({"key": key, "enabled": item.checkState() == Qt.Checked,
+                             "intro": self.sec_intro.get(key, "")})
+        return {"femrep_template_version": templates_mod.TEMPLATE_VERSION,
+                "name": self.f_name.text().strip() or "Untitled",
+                "branding": branding, "sections": sections}
+
+    # --- section editing ---
+    def _on_section_pick(self, row: int):
+        if 0 <= row < self.lst_sec.count():
+            key = self.lst_sec.item(row).data(Qt.UserRole)
+            self.f_intro.setText(self.sec_intro.get(key, ""))
+
+    def _on_intro_edit(self, text: str):
+        row = self.lst_sec.currentRow()
+        if 0 <= row < self.lst_sec.count():
+            self.sec_intro[self.lst_sec.item(row).data(Qt.UserRole)] = text
+
+    def _move_section(self, delta: int):
+        row = self.lst_sec.currentRow()
+        new = row + delta
+        if 0 <= row < self.lst_sec.count() and 0 <= new < self.lst_sec.count():
+            item = self.lst_sec.takeItem(row)
+            self.lst_sec.insertItem(new, item)
+            self.lst_sec.setCurrentRow(new)
+
+    # --- actions ---
+    def _pick_logo(self):
+        p, _ = QFileDialog.getOpenFileName(self, "Logo image", "", "Images (*.png *.jpg *.jpeg)")
+        if p:
+            self.brand_fields["logo"].setText(p)
+
+    def _new_blank(self):
+        name, ok = QInputDialog.getText(self, "New template", "Template name:", text="New template")
+        if ok and name.strip():
+            self._load_into_form(templates_mod.default_template(name.strip()))
+
+    def _new_from_result(self):
+        results = (self.last_payload or {}).get("results")
+        if results is None:
+            p, _ = QFileDialog.getOpenFileName(self, "Result file to seed from", "",
+                                               "Results (*.rst *.rth *.f06 *.op2);;All (*.*)")
+            if not p:
+                return
+            try:
+                results = extract_mod.extract(Path(p))
+            except Exception as e:
+                QMessageBox.critical(self, "femrep", f"Could not read result for seeding:\n{e}")
+                return
+        self._load_into_form(templates_mod.seed_from_results(results, "From result"))
+
+    def _duplicate(self):
+        tpl = self._collect()
+        tpl["name"] = f"{tpl['name']} copy"
+        self._load_into_form(tpl)
+
+    def _delete(self):
+        item = self.lst.currentItem()
+        if not item:
+            return
+        if QMessageBox.question(self, "femrep", f"Delete template {item.text()!r}?") == QMessageBox.Yes:
+            templates_mod.delete_template(self.project, item.text())
+            self._reload_list()
+
+    def _persist(self) -> Path:
+        """Write the form's template to disk; returns the path. UI-feedback-free
+        so it is testable without a modal dialog."""
+        tpl = self._collect()
+        path = templates_mod.save_template(self.project, tpl)
+        self.saved_name = templates_mod.validate(tpl)["name"]
+        self._reload_list(select=self.saved_name)
+        return path
+
+    def _save(self):
+        path = self._persist()
+        QMessageBox.information(self, "femrep", f"Saved template:\n{path}")
 
 
 def main() -> int:
