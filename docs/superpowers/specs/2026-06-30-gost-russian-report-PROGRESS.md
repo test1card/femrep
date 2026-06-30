@@ -12,8 +12,13 @@ v0.3.0 English path. Test venv: `./.test-venv/bin/python -m pytest tests/ -q`.
 - [x] 5. Wiring: run_report → report_gost_docx (force .docx); CLI `--profile`; batch; tests
 - [x] 6. GUI: Профиль selector + GOST fields (auto) + _render_to routing; 2 offscreen tests
 - [x] 7. Zero-English + GOST formatting tests green; full suite 51 passed; bumped 0.4.0
-- [ ] 8. README + CHANGELOG done; build wheel; re-bundle installer; release v0.4.0
-- [ ] 9. Polish; verify Cyrillic in generated docx; final verify
+- [x] 8. README + CHANGELOG; wheel + Windows bundle built; released v0.4.0 (Latest)
+- [x] 9. English renderers byte-unchanged vs v0.3.0 (empty git diff); .docx reopens with Cyrillic + fields; 51 tests green
+
+## DONE — v0.4.0 shipped
+Release: https://github.com/test1card/femrep/releases/tag/v0.4.0
+Assets: femrep-0.4.0-windows.zip, femrep-0.4.0-py3-none-any.whl
+Use: GUI Профиль → ГОСТ 7.32-2017, or `femrep result.f06 --out отчёт.docx --profile gost_ru`
 
 ## Contract / decisions
 - Structural elements (ГОСТ 7.32 §6): ТИТУЛЬНЫЙ ЛИСТ, РЕФЕРАТ, СОДЕРЖАНИЕ, ВВЕДЕНИЕ,
