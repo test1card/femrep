@@ -80,7 +80,7 @@ DOCX, structured and formatted per ГОСТ 7.32-2017 (титульный лис
 содержание, введение, нумерованная основная часть, заключение; Times New Roman
 14, полуторный интервал, поля 30/15/20/20 мм, сквозная нумерация). The реферат,
 введение, and заключение are auto-generated from the results to minimize manual
-editing. Select **Профиль → ГОСТ 7.32-2017** in the GUI, or:
+editing. Select **Шаблон → ГОСТ 7.32-2017 (DOCX, рус.)** in the GUI (no project needed), or:
 
 ```bash
 femrep result.f06 --out отчёт.docx --profile gost_ru

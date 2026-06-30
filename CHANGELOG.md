@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.6.0
+
+**ГОСТ 7.32-2017 selectable directly in the GUI + fully Russian interface.**
+
+- **ГОСТ in one click:** the main-window **Шаблон** dropdown now always offers
+  two built-in profiles — `По умолчанию` and `ГОСТ 7.32-2017 (DOCX, рус.)` —
+  usable with no project or template. Selecting ГОСТ renders the Russian
+  отчёт о НИР as `.docx` (the format is forced automatically). Previously the
+  profile was reachable only by creating a project and a custom template, even
+  though the README implied a direct selector.
+- **Fully Russian GUI:** every visible string — wizard steps, the template
+  editor, branding field labels, file pickers, and message boxes — is now
+  Russian, centralized in `locale_ru`. A zero-English test guards both the
+  string table and the live widgets (proper nouns Ansys/Nastran/femis and
+  abbreviations GCI/QoI/PDF/DOCX excepted).
+- No change to the ГОСТ document content, the English PDF/DOCX report path, the
+  CLI, or the result backends. 79 tests green.
+
 ## v0.5.6
 
 **Whole-class hardening for legacy Ansys (Codex + GLM 5.2 dual review).**
