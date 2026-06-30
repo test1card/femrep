@@ -887,13 +887,35 @@ class TemplateDialog(QDialog):
         QMessageBox.information(self, "femrep", f"Saved template:\n{path}")
 
 
+def _crash_log_path() -> Path:
+    base = Path.home() / "AppData" / "Local" / "femrep" if sys.platform == "win32" else Path.home()
+    base.mkdir(parents=True, exist_ok=True)
+    return base / "femrep-crash.log"
+
+
 def main() -> int:
-    app = QApplication(sys.argv)
-    app.setApplicationName("femrep")
-    app.setStyleSheet(gui_style.QSS)
-    win = FemrepWindow()
-    win.show()
-    return app.exec()
+    # The desktop icon runs the windowed (no-console) launcher, so an uncaught
+    # startup exception would close the window with no message. Log it to a file
+    # and show it in a dialog instead.
+    try:
+        app = QApplication(sys.argv)
+        app.setApplicationName("femrep")
+        app.setStyleSheet(gui_style.QSS)
+        win = FemrepWindow()
+        win.show()
+        return app.exec()
+    except Exception:
+        tb = traceback.format_exc()
+        try:
+            _crash_log_path().write_text(tb, encoding="utf-8")
+        except Exception:
+            pass
+        try:
+            QMessageBox.critical(None, "femrep — ошибка запуска",
+                                 f"{tb[-1500:]}\n\nЛог: {_crash_log_path()}")
+        except Exception:
+            sys.stderr.write(tb)
+        return 1
 
 
 if __name__ == "__main__":
